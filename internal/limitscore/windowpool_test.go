@@ -75,6 +75,8 @@ func TestSlotForLimitID(t *testing.T) {
 
 		{"codex primary", "codex", "openai-codex:primary", slotPrimary, 300},
 		{"codex secondary", "codex", "openai-codex:secondary", slotSecondary, 10080},
+		{"codex Spark primary is a separate sub-meter", "codex", "openai-codex:spark:primary", slotNone, 0},
+		{"codex Spark secondary is a separate sub-meter", "codex", "openai-codex:spark:secondary", slotNone, 0},
 
 		{"grok weekly credits", "grok", "xai-oauth:credits:1w", slotPrimary, 10080},
 		{"grok monthly included", "grok", "xai-oauth:included:1mo", slotSecondary, 43200},
@@ -97,11 +99,11 @@ func TestSlotForLimitID(t *testing.T) {
 		{"opencode weekly under codex", "codex", "weekly", slotNone, 0},
 		{"codex id under grok", "grok", "openai-codex:primary", slotNone, 0},
 
-		// The codex ids are matched by suffix, so a longer sub-meter id that
-		// merely contains "primary" is an unrecognized window, not the 5h one.
+		// Codex ids are exact. Longer product-specific sub-meter ids must not
+		// collide with the account's ordinary windows.
 		{"codex sub-meter below the primary window", "codex", "openai-codex:primary:legacy", slotNone, 0},
-		{"codex bare primary is not the suffix", "codex", "primary", slotNone, 0},
-		{"codex bare secondary is not the suffix", "codex", "secondary", slotNone, 0},
+		{"codex bare primary is not an id", "codex", "primary", slotNone, 0},
+		{"codex bare secondary is not an id", "codex", "secondary", slotNone, 0},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -240,6 +242,41 @@ func TestAccountWindowsFromOMP(t *testing.T) {
 		}
 		if got[0].Secondary != nil {
 			t.Fatalf("Secondary = %+v, want nil for a single observed window", *got[0].Secondary)
+		}
+	})
+
+	t.Run("ignores Codex product sub-meters beside the account window", func(t *testing.T) {
+		const observedAt = int64(1788158505060)
+		rows := []omp.UsageWindow{
+			{
+				Provider: "openai-codex", AccountKey: wpKeyOAuthFull, Email: wpEmail, AccountID: wpAccountID,
+				LimitID: "openai-codex:primary", Label: "7 days", WindowLabel: "7 days",
+				UsedFraction: 0.03, ResetsAtMs: 1788750018000, RecordedAtMs: observedAt,
+			},
+			{
+				Provider: "openai-codex", AccountKey: wpKeyOAuthFull, Email: wpEmail, AccountID: wpAccountID,
+				LimitID: "openai-codex:spark:primary", Label: "5 hours (Spark)", WindowLabel: "5 hours",
+				UsedFraction: 0, ResetsAtMs: 1788176505000, RecordedAtMs: observedAt,
+			},
+			{
+				Provider: "openai-codex", AccountKey: wpKeyOAuthFull, Email: wpEmail, AccountID: wpAccountID,
+				LimitID: "openai-codex:spark:secondary", Label: "7 days (Spark)", WindowLabel: "7 days",
+				UsedFraction: 0, ResetsAtMs: 1788763305000, RecordedAtMs: observedAt,
+			},
+		}
+
+		got := AccountWindowsFromOMP(rows)
+		if len(got) != 1 {
+			t.Fatalf("got %d observations, want 1: %+v", len(got), got)
+		}
+		if got[0].Primary == nil || !wpNearly(got[0].Primary.UsedPercentage, 3) {
+			t.Fatalf("Primary = %+v, want the ordinary Codex window at 3%% used", got[0].Primary)
+		}
+		if wpMinutes(got[0].Primary) != "10080" {
+			t.Fatalf("Primary.WindowMinutes = %s, want 10080", wpMinutes(got[0].Primary))
+		}
+		if got[0].Secondary != nil {
+			t.Fatalf("Secondary = %+v, want Spark sub-meter ignored", *got[0].Secondary)
 		}
 	})
 

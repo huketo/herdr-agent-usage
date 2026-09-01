@@ -139,10 +139,10 @@ func claudeLimitIDSlot(limitID string) (windowSlot, int) {
 }
 
 func codexLimitIDSlot(limitID string) (windowSlot, int) {
-	switch {
-	case strings.HasSuffix(limitID, ":primary"):
+	switch limitID {
+	case "openai-codex:primary":
 		return slotPrimary, 300
-	case strings.HasSuffix(limitID, ":secondary"):
+	case "openai-codex:secondary":
 		return slotSecondary, 10080
 	}
 	return slotNone, 0
