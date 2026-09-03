@@ -54,6 +54,30 @@ type CollectOptions struct {
 	// Only restricts collection to these provider ids (nil = all providers).
 	// Filtered providers are skipped entirely: their collectors never run.
 	Only map[string]bool
+	// Skip hides provider ids the user configured out of the panel, by profile
+	// id or by family id. It is applied after Only, so a hidden provider stays
+	// hidden even when something else would have shown it — including the
+	// panel's own "show every provider" mode.
+	Skip map[string]bool
+}
+
+// collects reports whether one collector should run. providerID is the
+// profile's own id; family is the provider family it belongs to, which is what
+// a user names when hiding a whole harness rather than one account.
+func (o CollectOptions) collects(providerID, family string) bool {
+	if o.Only != nil && !o.Only[providerID] {
+		return false
+	}
+	return !o.Skip[providerID] && !o.Skip[family]
+}
+
+// withDefaultSpec returns specs, or the family's literal default collector
+// when none are configured, which keeps direct test callers working.
+func withDefaultSpec(specs []ClaudeProfileCollector, id, label string) []ClaudeProfileCollector {
+	if len(specs) > 0 {
+		return specs
+	}
+	return []ClaudeProfileCollector{{ID: id, Label: label}}
 }
 
 // DefaultCollectOptions wires production local collectors (no network), one
@@ -168,9 +192,9 @@ var singleCollectorQuotaSpecs = []struct {
 
 // CollectAllProviderLimits runs collectors in display order: each configured
 // Claude profile (config order) -> Codex -> OpenCode -> Grok, then attaches
-// pane activity when configured. Providers excluded by opts.Only are skipped
-// (collectors never run). Pass DefaultCollectOptions() for production local
-// collectors.
+// pane activity when configured. Providers excluded by opts.Only, or hidden by
+// opts.Skip, are skipped (collectors never run). Pass DefaultCollectOptions()
+// for production local collectors.
 func CollectAllProviderLimits(cwd *string, nowMs int64, opts CollectOptions) []ProviderLimits {
 	collect := func(collector LimitsCollector, id, label string) ProviderLimits {
 		if collector != nil {
@@ -185,46 +209,29 @@ func CollectAllProviderLimits(cwd *string, nowMs int64, opts CollectOptions) []P
 		}
 	}
 
-	claudeSpecs := opts.Claude
-	if len(claudeSpecs) == 0 {
-		claudeSpecs = []ClaudeProfileCollector{{ID: "claude", Label: "Claude"}}
-	}
-	codexSpecs := opts.Codex
-	if len(codexSpecs) == 0 {
-		codexSpecs = []CodexProfileCollector{{ID: "codex", Label: "Codex"}}
-	}
-	openCodeSpecs := opts.OpenCode
-	if len(openCodeSpecs) == 0 {
-		openCodeSpecs = []OpenCodeProfileCollector{{ID: "opencode", Label: "OpenCode"}}
-	}
-	grokSpecs := opts.Grok
-	if len(grokSpecs) == 0 {
-		grokSpecs = []GrokProfileCollector{{ID: "grok", Label: "Grok"}}
+	// Collection order is the panel's display order. Each family carries its
+	// own id so a profile id ("ai_10") can be hidden individually while
+	// hiding the family id ("claude") hides every one of its accounts.
+	families := []struct {
+		family string
+		specs  []ClaudeProfileCollector
+	}{
+		{"claude", withDefaultSpec(opts.Claude, "claude", "Claude")},
+		{"codex", withDefaultSpec(opts.Codex, "codex", "Codex")},
+		{"opencode", withDefaultSpec(opts.OpenCode, "opencode", "OpenCode")},
+		{"grok", withDefaultSpec(opts.Grok, "grok", "Grok")},
 	}
 
-	base := make([]ProviderLimits, 0, len(claudeSpecs)+len(codexSpecs)+len(openCodeSpecs)+len(grokSpecs)+len(singleCollectorQuotaSpecs))
-	for _, spec := range claudeSpecs {
-		if opts.Only == nil || opts.Only[spec.ID] {
-			base = append(base, collect(spec.Collector, spec.ID, spec.Label))
-		}
-	}
-	for _, spec := range codexSpecs {
-		if opts.Only == nil || opts.Only[spec.ID] {
-			base = append(base, collect(spec.Collector, spec.ID, spec.Label))
-		}
-	}
-	for _, spec := range openCodeSpecs {
-		if opts.Only == nil || opts.Only[spec.ID] {
-			base = append(base, collect(spec.Collector, spec.ID, spec.Label))
-		}
-	}
-	for _, spec := range grokSpecs {
-		if opts.Only == nil || opts.Only[spec.ID] {
-			base = append(base, collect(spec.Collector, spec.ID, spec.Label))
+	base := make([]ProviderLimits, 0, len(singleCollectorQuotaSpecs))
+	for _, f := range families {
+		for _, spec := range f.specs {
+			if opts.collects(spec.ID, f.family) {
+				base = append(base, collect(spec.Collector, spec.ID, spec.Label))
+			}
 		}
 	}
 	for _, spec := range singleCollectorQuotaSpecs {
-		if opts.Only == nil || opts.Only[spec.id] {
+		if opts.collects(spec.id, spec.id) {
 			base = append(base, collect(spec.field(opts), spec.id, spec.label))
 		}
 	}

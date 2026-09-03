@@ -96,3 +96,32 @@ func contextOnlyProviderRank() map[string]int {
 	}
 	return rank
 }
+
+// HiddenProviderSet turns configured provider ids into a lookup set for
+// CollectOptions.Skip and for filtering the context section.
+func HiddenProviderSet(ids []string) map[string]bool {
+	if len(ids) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		set[id] = true
+	}
+	return set
+}
+
+// FilterHiddenContextPanes drops the rows of providers the user hid. These
+// providers have no profiles, so their agent id is the only id to match.
+func FilterHiddenContextPanes(panes []ContextPaneUsage, hidden map[string]bool) []ContextPaneUsage {
+	if len(hidden) == 0 || len(panes) == 0 {
+		return panes
+	}
+	out := make([]ContextPaneUsage, 0, len(panes))
+	for _, p := range panes {
+		if hidden[p.Agent] {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}

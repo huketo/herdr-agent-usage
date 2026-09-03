@@ -37,6 +37,16 @@ type PluginConfig struct {
 	// CacheDisplay controls both sidebar cache tokens and the Agent Usage pane's
 	// red-band cache warning.
 	CacheDisplay bool
+	// ShowAllProviders keeps every configured provider in the panel even when
+	// no open agent pane routes to it. The panel's default is the opposite —
+	// only providers with an open pane — which hides an account the user does
+	// have (a second Codex or Claude profile) whenever nothing is running on
+	// it. The `--all` flag sets the same mode for one invocation.
+	ShowAllProviders bool
+	// HiddenProviders are provider ids the panel must never show, by profile
+	// id or by family id ("grok" hides every Grok profile). Their collectors
+	// do not run either, so a hidden provider costs nothing to skip.
+	HiddenProviders []string
 	// ClaudeProfiles are the configured [[claude.profiles]] entries (unresolved).
 	// Empty means the single implicit "claude" profile is synthesized downstream.
 	ClaudeProfiles []claude.ProfileSpec
@@ -62,8 +72,10 @@ type pluginConfigWire struct {
 		RemainingThresholds []int `toml:"remaining_thresholds"`
 	} `toml:"notify"`
 	UI struct {
-		LimitPercent *string `toml:"limit_percent"`
-		CacheDisplay *bool   `toml:"cache_display"`
+		LimitPercent     *string  `toml:"limit_percent"`
+		CacheDisplay     *bool    `toml:"cache_display"`
+		ShowAllProviders *bool    `toml:"show_all_providers"`
+		HideProviders    []string `toml:"hide_providers"`
 	} `toml:"ui"`
 	Claude struct {
 		Profiles []profileWire `toml:"profiles"`
@@ -137,6 +149,15 @@ func DefaultPluginConfigTOML(config PluginConfig) string {
 	if config.NotifyEnabled {
 		enabled = "true"
 	}
+	showAll := "false"
+	if config.ShowAllProviders {
+		showAll = "true"
+	}
+	quoted := make([]string, len(config.HiddenProviders))
+	for i, id := range config.HiddenProviders {
+		quoted[i] = `"` + id + `"`
+	}
+	hidden := strings.Join(quoted, ", ")
 	return strings.Join([]string{
 		"# Agent Usage (usagebar) plugin config",
 		"# Path: herdr plugin config-dir usagebar",
@@ -151,6 +172,15 @@ func DefaultPluginConfigTOML(config PluginConfig) string {
 		`limit_percent = "` + string(core.ParseLimitPercent(string(config.LimitPercent))) + `"`,
 		"# Set false to hide cache data from both sidebar and Agent Usage.",
 		"cache_display = " + strconv.FormatBool(config.CacheDisplay),
+		"",
+		"# The panel shows only providers an open agent pane routes to. Set this",
+		"# to keep every configured provider visible, including an account that",
+		"# happens to have nothing running on it.",
+		"show_all_providers = " + showAll,
+		"",
+		"# Provider ids the panel must never show, by profile id or family id",
+		"# (\"grok\" hides every Grok profile). Their collectors do not run.",
+		"hide_providers = [" + hidden + "]",
 		"",
 		"# Multi-account Claude: uncomment and add one block per account.",
 
@@ -245,6 +275,10 @@ func ParsePluginConfigTOML(raw string) PluginConfig {
 	if wire.UI.CacheDisplay != nil {
 		cfg.CacheDisplay = *wire.UI.CacheDisplay
 	}
+	if wire.UI.ShowAllProviders != nil {
+		cfg.ShowAllProviders = *wire.UI.ShowAllProviders
+	}
+	cfg.HiddenProviders = normalizeProviderIDs(wire.UI.HideProviders)
 
 	for _, p := range wire.Claude.Profiles {
 		cfg.ClaudeProfiles = append(cfg.ClaudeProfiles, claude.ProfileSpec{

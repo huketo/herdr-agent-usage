@@ -251,12 +251,18 @@ type panelSnapshot struct {
 }
 
 // collectPanel gathers everything the panel shows. activeOnly hides providers
-// that have no open agent pane in Herdr (the panel default; --all overrides).
-// When the pane query fails, all subscription providers are shown (fail-open).
+// that have no open agent pane in Herdr (the panel default; --all and the
+// ui.show_all_providers config both override it). When the pane query fails,
+// all subscription providers are shown (fail-open). ui.hide_providers is
+// applied last and is never overridden: an id the user hid stays hidden.
 func collectPanel(nowMs int64, activeOnly bool) panelSnapshot {
+	cfg := setup.LoadPluginConfig(setup.ResolvePluginConfigDir(environment()))
+	hidden := limits.HiddenProviderSet(cfg.HiddenProviders)
+
 	snaps, panesOK := openPaneSnapshots()
 	opts := limits.DefaultCollectOptions()
-	if activeOnly {
+	opts.Skip = hidden
+	if activeOnly && !cfg.ShowAllProviders {
 		opts.Only = limits.ActiveProviderFilter(snaps, panesOK)
 		// Subscription gate: hide providers whose open panes all run on
 		// pay-as-you-go backends (--all bypasses both filters).
@@ -280,12 +286,13 @@ func collectPanel(nowMs int64, activeOnly bool) panelSnapshot {
 	if limits.ResolvedCacheDisplay() {
 		lowCachePanes = update.CollectLowCachePanes(snaps)
 	}
+	contextPanes := limits.CollectContextPaneUsage(snaps, limits.ContextPaneDeps{
+		ResolveUsage: update.ResolveContextUsageForPane,
+	})
 	return panelSnapshot{
-		providers: res.Providers,
-		apiUsage:  limits.CollectAPIProviderUsage(snaps, nowMs),
-		contextPanes: limits.CollectContextPaneUsage(snaps, limits.ContextPaneDeps{
-			ResolveUsage: update.ResolveContextUsageForPane,
-		}),
+		providers:     res.Providers,
+		apiUsage:      limits.CollectAPIProviderUsage(snaps, nowMs),
+		contextPanes:  limits.FilterHiddenContextPanes(contextPanes, hidden),
 		lowCachePanes: lowCachePanes,
 	}
 }

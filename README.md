@@ -194,6 +194,9 @@ remaining_thresholds = [50, 20, 10, 5]
 [ui]
 limit_percent = "remaining"  # or "used"
 cache_display = true         # false hides sidebar and pane cache displays
+show_all_providers = false
+hide_providers = []
+```
 
 `enabled = false` suppresses all Agent Usage toasts, including remaining-limit
 warnings and update-available notices; statusLine summaries and cached limits
@@ -203,6 +206,20 @@ window, from least to most severe. `limit_percent = "used"` inverts the displaye
 number (and bar fill) on the pane, sidebar `$limit`, statusLine, and toast body;
 notify firing stays on remaining thresholds. `cache_display = false` clears cache
 metadata from every sidebar pane and suppresses the Agent Usage low-cache warning.
+
+`show_all_providers = true` keeps every configured provider in the pane even
+when no open agent pane routes to it — the default shows only providers with an
+open pane, which hides an account you do have (a second Codex or Claude
+profile) whenever nothing is running on it. The `--all` flag does the same for
+one invocation.
+
+`hide_providers` names provider ids the pane must never show, by profile id
+(`"ai_10"`) or by family id (`"grok"` hides every Grok profile, and `"cursor"`
+or `"agy"` hides that provider's context rows). Hidden providers are not
+collected at all, so their local reads and credit lookups never run, and
+`show_all_providers` does not resurrect them. `usagebar setup` reports the
+current visibility and warns about an id that names neither a registered
+provider nor a configured profile.
 
 
 ### Multiple Claude accounts
