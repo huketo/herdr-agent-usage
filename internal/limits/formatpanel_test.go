@@ -356,7 +356,7 @@ func TestFormatUsagePanel_LowCachePaneWarning(t *testing.T) {
 			HitPercent: 43.1,
 		}},
 	}
-	text := FormatUsagePanel([]ProviderLimits{provider}, nil, 1_700_000_000_000, layout)
+	text := FormatUsagePanel([]ProviderLimits{provider}, nil, nil, 1_700_000_000_000, layout)
 	warning := "⚠ low cache performance: research 43.1%"
 	if !strings.Contains(text, warning) {
 		t.Fatalf("missing low-cache warning:\n%s", text)
@@ -365,7 +365,7 @@ func TestFormatUsagePanel_LowCachePaneWarning(t *testing.T) {
 		t.Fatalf("warning must follow provider content:\n%s", text)
 	}
 
-	withoutWarnings := FormatUsagePanel([]ProviderLimits{provider}, nil, 1_700_000_000_000, PanelLayout{Columns: 80, Rows: 40})
+	withoutWarnings := FormatUsagePanel([]ProviderLimits{provider}, nil, nil, 1_700_000_000_000, PanelLayout{Columns: 80, Rows: 40})
 	if strings.Contains(withoutWarnings, "low cache performance") {
 		t.Fatalf("unexpected cache warning:\n%s", withoutWarnings)
 	}

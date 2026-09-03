@@ -240,11 +240,13 @@ func openPaneSnapshots() ([]limits.OpenPaneSnapshot, bool) {
 	return update.ListOpenPaneSnapshots()
 }
 
-// panelSnapshot is what one panel render needs: subscription providers plus
-// pay-as-you-go spend blocks for the backends open panes are running.
+// panelSnapshot is what one panel render needs: subscription providers,
+// pay-as-you-go spend blocks for the backends open panes are running, and the
+// occupancy of panes whose provider owns no quota.
 type panelSnapshot struct {
 	providers     []limits.ProviderLimits
 	apiUsage      []limits.APIProviderUsage
+	contextPanes  []limits.ContextPaneUsage
 	lowCachePanes []limits.LowCachePane
 }
 
@@ -270,15 +272,20 @@ func collectPanel(nowMs int64, activeOnly bool) panelSnapshot {
 	limits.SaveUsageHistory(res.History)
 
 	// Pay-as-you-go blocks have no quota to run out of, so they skip the
-	// run-out enrichment entirely. Cache diagnostics stay sidebar-only except
-	// the explicit red-band warnings passed to the panel.
+	// run-out enrichment entirely. Context-only panes have no quota at all;
+	// they are listed whatever activeOnly says, since an open pane is the only
+	// thing that puts them in the panel. Cache diagnostics stay sidebar-only
+	// except the explicit red-band warnings passed to the panel.
 	var lowCachePanes []limits.LowCachePane
 	if limits.ResolvedCacheDisplay() {
 		lowCachePanes = update.CollectLowCachePanes(snaps)
 	}
 	return panelSnapshot{
-		providers:     res.Providers,
-		apiUsage:      limits.CollectAPIProviderUsage(snaps, nowMs),
+		providers: res.Providers,
+		apiUsage:  limits.CollectAPIProviderUsage(snaps, nowMs),
+		contextPanes: limits.CollectContextPaneUsage(snaps, limits.ContextPaneDeps{
+			ResolveUsage: update.ResolveContextUsageForPane,
+		}),
 		lowCachePanes: lowCachePanes,
 	}
 }
@@ -332,7 +339,7 @@ func runLimitsPane(args []string) error {
 	formatPanel := func(snap panelSnapshot, nowMs int64) string {
 		layout := layoutFor()
 		layout.LowCachePanes = snap.lowCachePanes
-		return limits.FormatUsagePanel(snap.providers, snap.apiUsage, nowMs, layout)
+		return limits.FormatUsagePanel(snap.providers, snap.apiUsage, snap.contextPanes, nowMs, layout)
 	}
 	if once || !term.IsTerminal(int(os.Stdout.Fd())) {
 		nowMs := time.Now().UnixMilli()

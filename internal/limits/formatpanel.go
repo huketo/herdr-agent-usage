@@ -456,15 +456,22 @@ func FormatProviderBlock(p ProviderLimits, layout PanelLayout, nowMs int64) stri
 }
 
 // FormatLimitsPanel renders subscription providers only. Prefer
-// FormatUsagePanel when pay-as-you-go blocks may be present.
+// FormatUsagePanel when pay-as-you-go or context-only blocks may be present.
 func FormatLimitsPanel(providers []ProviderLimits, nowMs int64, layout PanelLayout) string {
-	return FormatUsagePanel(providers, nil, nowMs, layout)
+	return FormatUsagePanel(providers, nil, nil, nowMs, layout)
 }
 
 // FormatUsagePanel renders the full panel — subscription blocks first, then
-// pay-as-you-go spend blocks — stepping down rich -> rich-slim -> compact.
-// Both kinds share one row budget so a short pane degrades uniformly.
-func FormatUsagePanel(providers []ProviderLimits, apiUsage []APIProviderUsage, nowMs int64, layout PanelLayout) string {
+// pay-as-you-go spend blocks, then the context-only section — stepping down
+// rich -> rich-slim -> compact. Every kind shares one row budget so a short
+// pane degrades uniformly.
+func FormatUsagePanel(
+	providers []ProviderLimits,
+	apiUsage []APIProviderUsage,
+	contextPanes []ContextPaneUsage,
+	nowMs int64,
+	layout PanelLayout,
+) string {
 	if layout.Columns == 0 && layout.Rows == 0 {
 		layout = defaultLayout
 	}
@@ -482,8 +489,9 @@ func FormatUsagePanel(providers []ProviderLimits, apiUsage []APIProviderUsage, n
 	rule := strings.Repeat(ruleChar, ruleWidth(layout.Columns))
 	footerText := fittingFooter(timeStr, layout.Columns-1)
 	footer := bar.Dim(footerText, layout.Color)
+
 	warning := lowCacheWarningLine(layout.LowCachePanes, layout)
-	if len(providers) == 0 && len(apiUsage) == 0 {
+	if len(providers) == 0 && len(apiUsage) == 0 && len(contextPanes) == 0 {
 		empty := layout.EmptyMessage
 		if empty == "" {
 			empty = "(no usage data yet)"
@@ -496,10 +504,15 @@ func FormatUsagePanel(providers []ProviderLimits, apiUsage []APIProviderUsage, n
 		return strings.Join(indent(lines), "\n")
 	}
 
-	blocks := make([]panelBlock, 0, len(providers)+len(apiUsage))
+	blocks := make([]panelBlock, 0, len(providers)+len(apiUsage)+1)
 	blocks = append(blocks, buildProviderBlocks(providers, layout, nowMs)...)
 	for _, p := range apiUsage {
 		blocks = append(blocks, apiBlock(p, layout))
+	}
+	// Context last: it reports occupancy, not allowance, so it must never
+	// push a provider's remaining-window block out of a short pane.
+	if len(contextPanes) > 0 {
+		blocks = append(blocks, contextPanesBlock(contextPanes, layout))
 	}
 
 	warningRows := 0
@@ -644,6 +657,105 @@ func apiBlock(p APIProviderUsage, layout PanelLayout) panelBlock {
 		rich:     func() []string { return apiRichBlock(p, layout, true) },
 		richSlim: func() []string { return apiRichBlock(p, layout, false) },
 		compact:  func() []string { return []string{apiCompactLine(p, layout)} },
+	}
+}
+
+// contextSectionHeading names the section in the panel. These providers have
+// no quota, so the heading states the one thing they do report rather than a
+// vendor name — the section holds every context-only provider at once.
+const contextSectionHeading = "Context"
+
+// contextPaneRow renders one context-only pane: the pane's label followed by
+// the same occupancy string its sidebar `$context` row shows, so the two
+// surfaces never disagree. The agent id is the row's provider column; these
+// providers have no accounts to distinguish, so it identifies them fully.
+func contextPaneRow(p ContextPaneUsage, layout PanelLayout, labelWidth int) string {
+	status := core.FormatUsageStatus(p.Usage, core.FormatUsageOptions{})
+	agent := padEnd(p.Agent, contextAgentWidth(layout))
+	return "  " + bar.Dim(agent, layout.Color) + "  " + padEnd(truncateToWidth(p.Label, labelWidth), labelWidth) + "  " + status
+}
+
+// contextAgentWidth keeps the agent column narrow enough to leave the label
+// and the occupancy readable in a 44-column pane.
+func contextAgentWidth(layout PanelLayout) int {
+	return min(max(layout.Columns/5, 3), 8)
+}
+
+// contextLabelWidth is what remains after the indent, the agent column, the
+// separators and the widest occupancy string in the section, so every row's
+// occupancy starts at the same column.
+func contextLabelWidth(panes []ContextPaneUsage, layout PanelLayout) int {
+	statusWidth := 0
+	for _, p := range panes {
+		statusWidth = max(statusWidth, core.DisplayWidth(core.FormatUsageStatus(p.Usage, core.FormatUsageOptions{})))
+	}
+	remaining := layout.Columns - 2 - contextAgentWidth(layout) - 2 - 2 - statusWidth - 1
+	return max(remaining, 4)
+}
+
+// truncateToWidth cuts s to width display columns, marking the cut with an
+// ellipsis. Display width rather than rune count: pane labels carry CJK.
+func truncateToWidth(s string, width int) string {
+	if core.DisplayWidth(s) <= width {
+		return s
+	}
+	if width <= 1 {
+		return "…"
+	}
+	runes := []rune(s)
+	for len(runes) > 0 {
+		runes = runes[:len(runes)-1]
+		if core.DisplayWidth(string(runes))+1 <= width {
+			return string(runes) + "…"
+		}
+	}
+	return "…"
+}
+
+// contextCompactLine collapses the whole section to one line, keeping each
+// pane's shortest occupancy form and reporting panes that did not fit as "+N",
+// the same budgeting the share row uses.
+func contextCompactLine(panes []ContextPaneUsage, layout PanelLayout) string {
+	heading := bar.Bold(contextSectionHeading, layout.Color)
+	budget := max(layout.Columns-core.DisplayWidth(contextSectionHeading)-4, 8)
+	var parts []string
+	used := 0
+	for _, p := range panes {
+		candidates := core.UsageStatusCandidates(p.Usage)
+		piece := p.Label + " " + candidates[len(candidates)-1]
+		add := core.DisplayWidth(piece)
+		if len(parts) > 0 {
+			add += 3
+		}
+		if used+add > budget && len(parts) > 0 {
+			break
+		}
+		parts = append(parts, piece)
+		used += add
+	}
+	line := heading + "  " + strings.Join(parts, " · ")
+	if overflow := len(panes) - len(parts); overflow > 0 {
+		line += fmt.Sprintf(" +%d", overflow)
+	}
+	return line
+}
+
+// contextPanesBlock is the whole section as one panel block, so it shares the
+// row budget with the subscription and pay-as-you-go blocks.
+func contextPanesBlock(panes []ContextPaneUsage, layout PanelLayout) panelBlock {
+	rich := func() []string {
+		labelWidth := contextLabelWidth(panes, layout)
+		lines := make([]string, 0, len(panes)+1)
+		lines = append(lines, bar.Bold(contextSectionHeading, layout.Color))
+		for _, p := range panes {
+			lines = append(lines, contextPaneRow(p, layout, labelWidth))
+		}
+		return lines
+	}
+	return panelBlock{
+		rich:     rich,
+		richSlim: rich,
+		compact:  func() []string { return []string{contextCompactLine(panes, layout)} },
 	}
 }
 

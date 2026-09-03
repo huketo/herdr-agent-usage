@@ -44,7 +44,7 @@ func TestUsagePaneSubscriptionContract_RendersEveryProviderWindowWithLeftAndRese
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out := FormatUsagePanel([]ProviderLimits{tt.provider}, nil, nowMs, PanelLayout{Columns: 100, Rows: 40})
+			out := FormatUsagePanel([]ProviderLimits{tt.provider}, nil, nil, nowMs, PanelLayout{Columns: 100, Rows: 40})
 			for _, want := range tt.want {
 				if !strings.Contains(out, want) {
 					t.Fatalf("missing %q in:\n%s", want, out)
@@ -63,7 +63,7 @@ func TestUsagePaneProviderFirstContract_SubscriptionAcrossHarnessesIsOneBlock(t 
 			{PaneID: "opencode", Label: "OpenCode", Tokens: 400, SharePercent: 40},
 		}},
 	}
-	out := FormatUsagePanel([]ProviderLimits{provider}, nil, 1_800_000_000_000, PanelLayout{Columns: 100, Rows: 40})
+	out := FormatUsagePanel([]ProviderLimits{provider}, nil, nil, 1_800_000_000_000, PanelLayout{Columns: 100, Rows: 40})
 	if strings.Count(out, "OpenCode Go") != 1 {
 		t.Fatalf("billing provider must render once:\n%s", out)
 	}
@@ -83,7 +83,7 @@ func TestUsagePaneProviderFirstContract_APIAcrossHarnessesIsOneBlock(t *testing.
 	if len(merged) != 1 {
 		t.Fatalf("got %d provider blocks, want 1", len(merged))
 	}
-	out := FormatUsagePanel(nil, merged, 1_800_000_000_000, PanelLayout{Columns: 100, Rows: 40})
+	out := FormatUsagePanel(nil, merged, nil, 1_800_000_000_000, PanelLayout{Columns: 100, Rows: 40})
 	if strings.Count(out, "DeepSeek · API") != 1 {
 		t.Fatalf("backend provider must render once:\n%s", out)
 	}

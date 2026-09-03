@@ -275,7 +275,7 @@ func TestFormatUsagePanel_RendersBothKinds(t *testing.T) {
 		ProviderID: "opencode", Label: "OpenCode", PlanType: strPtr("Go"),
 		Primary: &LimitWindow{UsedPercentage: 0, WindowMinutes: &five},
 	}
-	out := FormatUsagePanel([]ProviderLimits{sub}, []APIProviderUsage{sampleAPIUsage()}, apiNowMs, PanelLayout{Columns: 44, Rows: 40})
+	out := FormatUsagePanel([]ProviderLimits{sub}, []APIProviderUsage{sampleAPIUsage()}, nil, apiNowMs, PanelLayout{Columns: 44, Rows: 40})
 	if !strings.Contains(out, "OpenCode") {
 		t.Fatal("subscription block missing")
 	}
@@ -288,7 +288,7 @@ func TestFormatUsagePanel_RendersBothKinds(t *testing.T) {
 }
 
 func TestFormatUsagePanel_APIOnlyIsNotEmpty(t *testing.T) {
-	out := FormatUsagePanel(nil, []APIProviderUsage{sampleAPIUsage()}, apiNowMs, PanelLayout{Columns: 44, Rows: 40})
+	out := FormatUsagePanel(nil, []APIProviderUsage{sampleAPIUsage()}, nil, apiNowMs, PanelLayout{Columns: 44, Rows: 40})
 	if strings.Contains(out, "no usage data yet") {
 		t.Fatalf("api-only panel must not render the empty state:\n%s", out)
 	}
@@ -304,7 +304,7 @@ func TestFormatUsagePanel_ShortPaneDegradesBothKinds(t *testing.T) {
 		Primary: &LimitWindow{UsedPercentage: 0, WindowMinutes: &five},
 	}
 	// Rows budget far below the rich tiers forces the compact tier.
-	out := FormatUsagePanel([]ProviderLimits{sub}, []APIProviderUsage{sampleAPIUsage()}, apiNowMs, PanelLayout{Columns: 44, Rows: 8})
+	out := FormatUsagePanel([]ProviderLimits{sub}, []APIProviderUsage{sampleAPIUsage()}, nil, apiNowMs, PanelLayout{Columns: 44, Rows: 8})
 	if strings.Contains(out, "models") {
 		t.Fatalf("compact tier must drop the models row:\n%s", out)
 	}
