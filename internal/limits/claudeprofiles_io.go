@@ -133,15 +133,14 @@ func codexProfileByIDIn(profiles []codex.CodexProfile, id string) (codex.CodexPr
 	return codex.CodexProfile{}, false
 }
 
-// applyCodexProfileGrouping nests pl under the shared "Codex" heading when
-// multiProfile is true. AccountLabel carries the configured label (or id);
-// auth.json has no email we are willing to decode here.
-func applyCodexProfileGrouping(pl ProviderLimits, p codex.CodexProfile, multiProfile bool) ProviderLimits {
+// applyCodexGrouping accepts an observed account label as well as a configured
+// profile label, so accounts discovered from OMP render through the same group.
+func applyCodexGrouping(pl ProviderLimits, accountLabel string, multiProfile bool) ProviderLimits {
 	if !multiProfile {
 		return pl
 	}
 	pl.GroupLabel = "Codex"
-	pl.AccountLabel = p.Label
+	pl.AccountLabel = accountLabel
 	return pl
 }
 

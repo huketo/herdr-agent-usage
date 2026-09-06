@@ -68,6 +68,17 @@ func (a AccountWindows) identity() string {
 	return a.AccountKey
 }
 
+// StableIdentity returns the strongest account key available to consumers
+// that need to keep distinct observed accounts separate.
+func (a AccountWindows) StableIdentity() string {
+	return a.identity()
+}
+
+// MatchesIdentity reports whether want names this observed account.
+func (a AccountWindows) MatchesIdentity(want string) bool {
+	return a.identifies(want)
+}
+
 // identified reports whether the observer named the account at all. An
 // unidentified observation can be neither confirmed nor refuted against a
 // wanted account.

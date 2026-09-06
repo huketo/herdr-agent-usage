@@ -154,15 +154,13 @@ func TestCollectCodexLimits_SkipsSnapshotlessNewest(t *testing.T) {
 	}
 }
 
-// codexObservationRows is the pair of usage_history rows OMP writes for one
-// Codex account. Fractions are binary-exact so the ×100 conversion compares
-// without a tolerance.
-func codexObservationRows(recordedAtMs int64, primary, secondary float64) []usageRow {
-	const (
-		accountKey = "oauth|account:9f8e7d6c-5b4a-4392-8170-6e5d4c3b2a19|email:asrsena3302@gmail.com"
-		email      = "asrsena3302@gmail.com"
-		accountID  = "9f8e7d6c-5b4a-4392-8170-6e5d4c3b2a19"
-	)
+// codexObservationRowsForAccount builds the two account-wide windows OMP
+// records for one Codex account.
+func codexObservationRowsForAccount(
+	recordedAtMs int64,
+	accountKey, email, accountID string,
+	primary, secondary float64,
+) []usageRow {
 	return []usageRow{
 		{
 			RecordedAtMs: recordedAtMs, Provider: "openai-codex", AccountKey: accountKey,
@@ -177,6 +175,20 @@ func codexObservationRows(recordedAtMs int64, primary, secondary float64) []usag
 			Status: "ok", ResetsAtMs: recordedAtMs + 86_400_000,
 		},
 	}
+}
+
+// codexObservationRows is the pair of usage_history rows OMP writes for one
+// Codex account. Fractions are binary-exact so the ×100 conversion compares
+// without a tolerance.
+func codexObservationRows(recordedAtMs int64, primary, secondary float64) []usageRow {
+	return codexObservationRowsForAccount(
+		recordedAtMs,
+		"oauth|account:9f8e7d6c-5b4a-4392-8170-6e5d4c3b2a19|email:asrsena3302@gmail.com",
+		"asrsena3302@gmail.com",
+		"9f8e7d6c-5b4a-4392-8170-6e5d4c3b2a19",
+		primary,
+		secondary,
+	)
 }
 
 // Issue #29: a Codex subscription driven through another harness leaves

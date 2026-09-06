@@ -6,8 +6,13 @@
 package limits
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"path/filepath"
+	"sort"
+	"strings"
 
+	"github.com/senna-lang/herdr-agent-usage/internal/limitscore"
 	antigravityprovider "github.com/senna-lang/herdr-agent-usage/internal/providers/antigravity"
 	claudeprovider "github.com/senna-lang/herdr-agent-usage/internal/providers/claude"
 	"github.com/senna-lang/herdr-agent-usage/internal/providers/codex"
@@ -27,9 +32,9 @@ type ClaudeProfileCollector struct {
 	Collector LimitsCollector
 }
 
-// CodexProfileCollector is one configured Codex profile's collector. Same
-// shape as ClaudeProfileCollector: each account collects and displays under
-// its own provider id instead of sharing the single literal "codex" id.
+// CodexProfileCollector is one Codex account collector. Accounts may come
+// from an explicit CODEX_HOME profile or OMP's observed account inventory.
+// Each account displays under its own provider id.
 type CodexProfileCollector = ClaudeProfileCollector
 
 // GrokProfileCollector is one configured Grok profile's collector.
@@ -86,8 +91,118 @@ func withDefaultSpec(specs []ClaudeProfileCollector, id, label string) []ClaudeP
 	return []ClaudeProfileCollector{{ID: id, Label: label}}
 }
 
+type codexCollectorEntry struct {
+	id           string
+	label        string
+	accountLabel string
+	collector    LimitsCollector
+}
+
+// buildCodexCollectors keeps explicitly configured CODEX_HOME profiles and
+// adds every other Codex account OMP has observed. OMP rotates among OAuth
+// accounts inside one harness home, so profile directories alone are not a
+// complete account inventory.
+func buildCodexCollectors(profiles []codex.CodexProfile, observations []AccountWindows) []CodexProfileCollector {
+	observed := make([]AccountWindows, 0, len(observations))
+	for _, account := range observations {
+		if account.ProviderID == codex.Provider.AgentID() && account.StableIdentity() != "" {
+			observed = append(observed, account)
+		}
+	}
+	sort.Slice(observed, func(i, j int) bool {
+		left, right := observedCodexAccountLabel(observed[i]), observedCodexAccountLabel(observed[j])
+		if !strings.EqualFold(left, right) {
+			return strings.ToLower(left) < strings.ToLower(right)
+		}
+		return observed[i].StableIdentity() < observed[j].StableIdentity()
+	})
+
+	matched := make(map[string]bool, len(observed))
+	entries := make([]codexCollectorEntry, 0, len(profiles)+len(observed))
+	for _, profile := range profiles {
+		accountID := codex.AccountIDIn(profile.Home)
+		var account *AccountWindows
+		for i := range observed {
+			if observed[i].MatchesIdentity(accountID) ||
+				(accountID == "" && profile.Implicit && len(observed) == 1) {
+				account = &observed[i]
+				matched[observed[i].StableIdentity()] = true
+				break
+			}
+		}
+
+		// The zero-config profile is only a compatibility placeholder. With
+		// several observed accounts and no auth identity it cannot name a real
+		// third account, so do not render an extra empty row for it.
+		if profile.Implicit && accountID == "" && len(observed) > 1 {
+			continue
+		}
+
+		accountLabel := profile.Label
+		if account != nil {
+			accountLabel = observedCodexAccountLabel(*account)
+		}
+		profile := profile
+		entries = append(entries, codexCollectorEntry{
+			id:           profile.ID,
+			label:        profile.Label,
+			accountLabel: accountLabel,
+			collector: func(_ *string, nowMs int64) ProviderLimits {
+				return CollectCodexLimitsIn(profile.Home, profile.ID, profile.Label, nowMs)
+			},
+		})
+	}
+
+	for _, account := range observed {
+		identity := account.StableIdentity()
+		if matched[identity] {
+			continue
+		}
+		account := account
+		label := observedCodexAccountLabel(account)
+		id := observedCodexProviderID(identity)
+		entries = append(entries, codexCollectorEntry{
+			id:           id,
+			label:        label,
+			accountLabel: label,
+			collector: func(_ *string, nowMs int64) ProviderLimits {
+				return BorrowedProviderLimits(account, id, label, nowMs)
+			},
+		})
+	}
+
+	multiAccount := len(entries) > 1
+	collectors := make([]CodexProfileCollector, len(entries))
+	for i, entry := range entries {
+		entry := entry
+		collectors[i] = CodexProfileCollector{
+			ID:    entry.id,
+			Label: entry.label,
+			Collector: func(cwd *string, nowMs int64) ProviderLimits {
+				return applyCodexGrouping(entry.collector(cwd, nowMs), entry.accountLabel, multiAccount)
+			},
+		}
+	}
+	return collectors
+}
+
+func observedCodexAccountLabel(account AccountWindows) string {
+	if email := strings.TrimSpace(account.Email); email != "" {
+		return email
+	}
+	if accountID := strings.TrimSpace(account.AccountID); accountID != "" {
+		return accountID
+	}
+	return "account " + observedCodexProviderID(account.StableIdentity())[len("codex-observed-"):]
+}
+
+func observedCodexProviderID(identity string) string {
+	sum := sha256.Sum256([]byte(identity))
+	return "codex-observed-" + hex.EncodeToString(sum[:6])
+}
+
 // DefaultCollectOptions wires production local collectors (no network), one
-// collector per configured Claude, Codex, Grok, or OpenCode profile.
+// collector per configured profile or discovered account.
 func DefaultCollectOptions() CollectOptions {
 	profiles := ResolvedClaudeProfiles()
 	multiProfile := len(profiles) > 1
@@ -113,18 +228,7 @@ func DefaultCollectOptions() CollectOptions {
 	}
 
 	codexProfiles := ResolvedCodexProfiles()
-	multiCodex := len(codexProfiles) > 1
-	codexCollectors := make([]CodexProfileCollector, len(codexProfiles))
-	for i, profile := range codexProfiles {
-		codexCollectors[i] = CodexProfileCollector{
-			ID:    profile.ID,
-			Label: profile.Label,
-			Collector: func(_ *string, nowMs int64) ProviderLimits {
-				pl := CollectCodexLimitsIn(profile.Home, profile.ID, profile.Label, nowMs)
-				return applyCodexProfileGrouping(pl, profile, multiCodex)
-			},
-		}
-	}
+	codexCollectors := buildCodexCollectors(codexProfiles, limitscore.ObserveAccountWindows())
 
 	grokProfiles := ResolvedGrokProfiles()
 	multiGrok := len(grokProfiles) > 1
@@ -189,11 +293,11 @@ var singleCollectorQuotaSpecs = []struct {
 }{}
 
 // quotaFamilySpecs is the canonical list of quota-owning providers that
-// expand to several panel entries: one per configured account, or — for
-// Antigravity — one per model pool in the latest statusLine observation. It is the
-// display order, the family-id vocabulary that ui.hide_providers accepts, and
-// the set billingmode.go subtracts to find the still-single providers, so all
-// three cannot drift apart.
+// expand to several panel entries: one per configured or observed account, or
+// — for Antigravity — one per model pool in the latest statusLine observation.
+// It is the display order, the family-id vocabulary that ui.hide_providers
+// accepts, and the set billingmode.go subtracts to find the still-single
+// providers, so all three cannot drift apart.
 var quotaFamilySpecs = []struct {
 	family, label string
 	field         func(CollectOptions) []ClaudeProfileCollector

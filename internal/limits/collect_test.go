@@ -314,6 +314,114 @@ func TestDefaultCollectOptions_MultiProfileGroupsEveryProfileUnderCodex(t *testi
 	}
 }
 
+// OMP rotates among every signed-in Codex account, so its usage_history is the
+// only complete local account list. A zero-config panel must show each account,
+// rather than refusing the ambiguous borrow and rendering one empty Codex row.
+func TestDefaultCollectOptions_DiscoversEveryObservedCodexAccount(t *testing.T) {
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	nowMs := int64(1_788_703_200_000)
+	rows := codexObservationRowsForAccount(
+		nowMs-60_000,
+		"oauth|account:acct-work|email:work@example.com",
+		"work@example.com",
+		"acct-work",
+		0.25,
+		0.75,
+	)
+	rows = append(rows, codexObservationRowsForAccount(
+		nowMs-120_000,
+		"oauth|account:acct-personal|email:personal@example.com",
+		"personal@example.com",
+		"acct-personal",
+		0.5,
+		0.125,
+	)...)
+	useAgentDB(t, rows...)
+
+	opts := DefaultCollectOptions()
+	if len(opts.Codex) != 2 {
+		t.Fatalf("Codex collectors = %d, want one per observed account", len(opts.Codex))
+	}
+
+	got := map[string]ProviderLimits{}
+	ids := map[string]bool{}
+	for _, collector := range opts.Codex {
+		limits := collector.Collector(nil, nowMs)
+		got[limits.AccountLabel] = limits
+		if ids[limits.ProviderID] {
+			t.Fatalf("duplicate provider id %q", limits.ProviderID)
+		}
+		ids[limits.ProviderID] = true
+	}
+	for label, wantPrimary := range map[string]float64{
+		"personal@example.com": 50,
+		"work@example.com":     25,
+	} {
+		limits, ok := got[label]
+		if !ok {
+			t.Fatalf("missing Codex account %q: %+v", label, got)
+		}
+		if limits.GroupLabel != "Codex" {
+			t.Fatalf("%s group = %q, want Codex", label, limits.GroupLabel)
+		}
+		if limits.Primary == nil || limits.Primary.UsedPercentage != wantPrimary {
+			t.Fatalf("%s primary = %+v, want %.0f%%", label, limits.Primary, wantPrimary)
+		}
+	}
+}
+
+// A configured CODEX_HOME and OMP may describe the same account. Its auth
+// identity must join those sources into one row while unmatched OMP accounts
+// remain visible.
+func TestDefaultCollectOptions_DeduplicatesConfiguredAndObservedCodexAccount(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", home)
+	codexHome := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexHome, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codexHome, "auth.json"),
+		[]byte(`{"tokens":{"account_id":"acct-work"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	nowMs := int64(1_788_703_200_000)
+	rows := codexObservationRowsForAccount(
+		nowMs-60_000,
+		"oauth|account:acct-work|email:work@example.com",
+		"work@example.com",
+		"acct-work",
+		0.25,
+		0.75,
+	)
+	rows = append(rows, codexObservationRowsForAccount(
+		nowMs-120_000,
+		"oauth|account:acct-personal|email:personal@example.com",
+		"personal@example.com",
+		"acct-personal",
+		0.5,
+		0.125,
+	)...)
+	useAgentDB(t, rows...)
+
+	opts := DefaultCollectOptions()
+	if len(opts.Codex) != 2 {
+		t.Fatalf("Codex collectors = %d, want configured account plus one unmatched account", len(opts.Codex))
+	}
+	got := make(map[string]ProviderLimits, len(opts.Codex))
+	for _, collector := range opts.Codex {
+		account := collector.Collector(nil, nowMs)
+		got[account.AccountLabel] = account
+	}
+	if got["work@example.com"].ProviderID != "codex" {
+		t.Fatalf("configured account = %+v, want the stable codex provider id", got["work@example.com"])
+	}
+	if personal := got["personal@example.com"]; personal.ProviderID == "" || personal.ProviderID == "codex" {
+		t.Fatalf("observed account = %+v, want its own provider id", personal)
+	}
+}
+
 func TestCollectAllProviderLimits_MultipleGrokAndOpenCodeProfiles(t *testing.T) {
 	got := CollectAllProviderLimits(nil, 100, CollectOptions{
 		Grok: []GrokProfileCollector{

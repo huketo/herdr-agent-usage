@@ -205,9 +205,9 @@ func codexHome() string {
 // panes with different cwds show snapshots captured at different times — the
 // less-recently-active pane displaying a stale, lower %. So cwd is intentionally
 // ignored here (unlike the per-pane sidebar context meter, a separate path),
-// matching the Claude/OpenCode/Grok collectors. Assumes a single Codex account
-// (~/.codex is single-auth); with multiple accounts this reports whichever
-// session turned most recently.
+// matching the Claude/OpenCode/Grok collectors. This function is scoped to the
+// process Codex home; DefaultCollectOptions adds separate collectors for other
+// configured homes and accounts observed by OMP.
 //
 // A rollout snapshot is a cache with a timestamp, not live truth. When
 // another agent has observed this same account's windows more recently, that
