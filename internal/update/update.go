@@ -241,6 +241,11 @@ func RunUpdateForPane(paneID string, force bool) {
 
 	p := providers.FindProvider(*pane.Agent)
 	if p == nil {
+		// A removed or otherwise unsupported provider must not retain metadata
+		// written by an older plugin version.
+		for _, name := range []string{"provider", "limit", "context"} {
+			writeMetadataToken(pane.Tokens, paneID, name, "", false, false)
+		}
 		return
 	}
 

@@ -60,3 +60,36 @@ fi
 		})
 	}
 }
+
+func TestRunUpdate_UnsupportedAgentClearsUsageMetadata(t *testing.T) {
+	root := t.TempDir()
+	logPath := filepath.Join(root, "metadata.log")
+	binPath := filepath.Join(root, "fake-herdr")
+	script := `#!/bin/sh
+if [ "$1" = pane ] && [ "$2" = get ]; then
+  printf '{"result":{"pane":{"agent":"retired-agent","agent_status":"idle","label":"retired-agent","cwd":"/tmp","tokens":{"provider":"retired-agent","limit":"5h 98%%","context":"⛁ 17%%"}}}}\n'
+  exit 0
+fi
+if [ "$1" = pane ] && [ "$2" = report-metadata ]; then
+  printf '%s\n' "$*" >> "$REVIEW_METADATA_LOG"
+fi
+`
+	if err := os.WriteFile(binPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HERDR_PANE_ID", "retired-pane")
+	t.Setenv("HERDR_BIN_PATH", binPath)
+	t.Setenv("REVIEW_METADATA_LOG", logPath)
+
+	RunUpdate(false)
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("metadata calls = none: %v", err)
+	}
+	for _, token := range []string{"provider", "limit", "context"} {
+		if !strings.Contains(string(data), "--clear-token "+token) {
+			t.Fatalf("missing clear for %s: %q", token, data)
+		}
+	}
+}
