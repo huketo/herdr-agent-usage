@@ -117,7 +117,7 @@ herdr plugin action invoke usagebar.setup
 
 | Agent | Sidebar context + limit | Limits pane | Notes |
 | --- | --- | --- | --- |
-| Antigravity CLI | Yes | Yes | Context + weekly quota from the CLI statusLine (opt-in, no config file — run `/statusline` inside `agy`; see `usagebar setup`). Two separate weekly allotments: native Gemini models and third-party models (Claude, GPT, …) routed through it |
+| Antigravity CLI | Yes | Yes | Context + quota from the CLI statusLine (opt-in: add the `statusLine` block `usagebar setup` prints to `~/.gemini/antigravity-cli/settings.json`; `stack_with_default` keeps agy's built-in line). One limits-pane block per model pool — Gemini, and the Claude/GPT models agy routes — each with its 5h and weekly window. Quota is recorded from the first status update, before any turn. See [docs/antigravity-contract.md](docs/antigravity-contract.md) |
 | Claude Code | Yes | Yes | Account-wide subscription windows and model-scoped weekly allowances (for example, Fable) from `~/.claude.json`; statusLine cache can refresh account-wide windows. Pay-as-you-go (API key, Bedrock, Vertex, Foundry, gateway) hides those windows and labels the backend from deployment env / settings |
 | Codex | Yes | Yes | Context + rate windows from local rollouts; custom `model_provider` panes are pay-as-you-go |
 | OpenCode | Yes | Yes | The `opencode-go` subscription keeps no usage numbers on disk, so its windows come from opencode.ai, authenticated by `OPENCODE_GO_COOKIE` or a browser session imported via the Keychain ([details](#opencode-go-official-usage)); without either it degrades to a local SQLite estimate. Other backends (e.g. DeepSeek) show token/cost spend instead of plan windows |
@@ -214,8 +214,9 @@ profile) whenever nothing is running on it. The `--all` flag does the same for
 one invocation.
 
 `hide_providers` names provider ids the pane must never show, by profile id
-(`"ai_10"`) or by family id (`"grok"` hides every Grok profile, and `"cursor"`
-or `"agy"` hides that provider's context rows). Hidden providers are not
+(`"ai_10"`) or by family id (`"grok"` hides every Grok profile, `"agy"` hides
+every Antigravity model pool, and `"cursor"` hides that provider's context
+rows). Hidden providers are not
 collected at all, so their local reads and credit lookups never run, and
 `show_all_providers` does not resurrect them. `usagebar setup` reports the
 current visibility and warns about an id that names neither a registered
@@ -501,7 +502,7 @@ Everything is computed from files that the agents already keep on your machine:
 
 | Harness | Local sources read |
 | --- | --- |
-| Antigravity CLI | Snapshots under `~/.gemini/antigravity-cli/herdr-usagebar/` (or `USAGEBAR_STATE_DIR`), written from the CLI statusLine payload — the only local surface reporting context and quota usage; Antigravity's own `conversations/*.db` is not read (SQLite with protobuf-encoded columns; see [docs/antigravity-contract.md](docs/antigravity-contract.md)) |
+| Antigravity CLI | Snapshots under `~/.gemini/antigravity-cli/herdr-usagebar/` (or `USAGEBAR_STATE_DIR`) — one per conversation for context, plus `account.json` for account-wide quota — written from the CLI statusLine payload, the only local surface reporting context and quota usage; Antigravity's own `conversations/*.db` is not read (SQLite with protobuf-encoded columns; see [docs/antigravity-contract.md](docs/antigravity-contract.md)) |
 | Claude Code | `~/.claude.json` (including model-scoped limits such as Fable), statusLine cache under `~/.claude/herdr-usagebar/`, `settings.json` (deployment env) |
 | Codex | rollout files under `~/.codex/sessions/` |
 | OpenCode | `~/.local/share/opencode/opencode.db` (session usage), `~/.local/share/opencode/auth.json` (credential kind only), and — for OpenCode Go's official windows — the `opencode.ai` cookie in a local Chromium profile plus that browser's Keychain "Safe Storage" password (read-only, never persisted; see [OpenCode Go official usage](#opencode-go-official-usage)) |

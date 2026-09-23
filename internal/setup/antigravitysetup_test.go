@@ -4,26 +4,33 @@
 package setup
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
 
-func TestAntigravitySetupLines_MentionsSlashCommandAndBridge(t *testing.T) {
-	joined := strings.Join(antigravitySetupLines("/plugin"), "\n")
-	for _, want := range []string{
-		"/statusline bash /plugin/bin/run-antigravity-statusline.sh",
-		"/statusline delete",
-	} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("missing %q in:\n%s", want, joined)
-		}
+// The snippet is pasted into settings.json, so it must be a valid JSON member
+// that agy reads as a stacked command statusLine running the bridge.
+func TestAntigravityStatusLineSnippet_IsStackedCommandEntry(t *testing.T) {
+	var parsed struct {
+		StatusLine struct {
+			Type             string `json:"type"`
+			Command          string `json:"command"`
+			StackWithDefault bool   `json:"stack_with_default"`
+		} `json:"statusLine"`
+	}
+	if err := json.Unmarshal([]byte("{"+AntigravityStatusLineSnippet("/plugin")+"}"), &parsed); err != nil {
+		t.Fatalf("snippet is not valid JSON: %v", err)
+	}
+	got := parsed.StatusLine
+	if got.Type != "command" || got.Command != "bash /plugin/bin/run-antigravity-statusline.sh" || !got.StackWithDefault {
+		t.Fatalf("statusLine=%+v", got)
 	}
 }
 
-func TestAntigravityStatusLineSnippet(t *testing.T) {
-	got := AntigravityStatusLineSnippet("/plugin")
-	want := "/statusline bash /plugin/bin/run-antigravity-statusline.sh"
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
+func TestAntigravitySetupLines_IncludeSnippet(t *testing.T) {
+	joined := strings.Join(antigravitySetupLines("/plugin"), "\n")
+	if !strings.Contains(joined, AntigravityStatusLineSnippet("/plugin")) {
+		t.Fatalf("setup report omits the settings.json snippet:\n%s", joined)
 	}
 }

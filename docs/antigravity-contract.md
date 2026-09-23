@@ -7,19 +7,37 @@ monitoring.
 
 | | |
 | --- | --- |
-| Antigravity CLI | `1.2.3` (Homebrew cask `antigravity-cli`) |
-| Verified on | macOS, `~/.gemini/antigravity-cli` default app-data directory |
+| Antigravity CLI | `1.2.8` (Linux x64, WSL2); earlier baseline `1.2.3` (Homebrew cask `antigravity-cli`, macOS) |
+| Verified on | `~/.gemini/antigravity-cli` default app-data directory |
 
 ## Where the contract is documented
 
-Antigravity's statusLine payload is **not documented on any public docs
-site**. It is exposed only through `/statusline <command>` inside the CLI
-itself (`agy` → `/statusline help`), which spawns the configured command on
-every status update and pipes it the same kind of JSON session description
-Cursor's statusLine uses. There is therefore no URL for the drift checker to
-watch for this contract; it is pinned instead by the captured-payload fixture
-in `internal/providers/antigravity/statusline_test.go`, which must be
-re-captured when the tested version advances.
+Antigravity documents the statusLine publicly at
+[antigravity.google/docs/cli/statusline](https://antigravity.google/docs/cli/statusline)
+(configuration block and payload fields) and
+[/docs/cli/commands/statusline](https://antigravity.google/docs/cli/commands/statusline)
+(the `/statusline` slash command). The contract drift checker watches the
+first page (`scripts/contractdrift/provider-contracts.json`, id
+`antigravity`). The published payload example is sanitized and older than the
+tested version (it shows `1.0.13`), so the captured-payload fixtures in
+`internal/providers/antigravity/statusline_test.go` and
+`statuslinecmd_test.go` remain the exact baseline and must be re-captured
+when the tested version advances.
+
+Configuration lives in `~/.gemini/antigravity-cli/settings.json`:
+
+```json
+"statusLine": {
+  "type": "command",
+  "command": "bash <plugin-root>/bin/run-antigravity-statusline.sh",
+  "stack_with_default": true
+}
+```
+
+`stack_with_default` (agy `1.0.6`+) renders the command's output below the
+built-in status line instead of replacing it. `usagebar setup` prints this
+block; the plugin never edits Antigravity's settings file. `/statusline
+<command>` inside `agy` writes the same `command` key.
 
 Antigravity ships an `agy 1.2.2`-era `history.jsonl` / `presence/` layout in
 some installs and a `conversation_summaries.db` / `cache/conversation_metadata.json`
@@ -34,7 +52,10 @@ From the statusLine payload, this provider reads:
   integration reports this as `agent_session` with **`kind: "id"`**, not
   `"path"` — confirmed against a real `herdr pane get` while `agy` ran inside
   a herdr pane. This is the only currently-registered provider using `kind:
-  "id"` rather than a session file path.
+  "id"` rather than a session file path. Before the first turn agy sends
+  payloads with an **empty** `conversation_id` (observed on `1.2.8` while the
+  CLI was still `initializing`) that already carry the account's `quota`; see
+  "Quota semantics".
 - `context_window.total_input_tokens` — a running, non-nullable integer.
   Unlike Cursor, Antigravity never nulls this field out early in a session; a
   captured `0` is a real "no turns yet" observation, not a missing one.
@@ -44,12 +65,16 @@ From the statusLine payload, this provider reads:
   — the latest completed turn's cache breakdown, present only after the first
   turn. Feeds `$cache_*`; there is no session-cumulative cache counter
   locally, so `SessionCache` is intentionally left unset.
-- `quota` — a map of weekly allotments, keyed by Antigravity's own bucket id.
-  Two buckets were observed: `gemini-weekly` (Antigravity's native model) and
-  `3p-weekly` (third-party models — Claude, GPT, … — routed through it), each
-  carrying `remaining_fraction` (0-1) and an absolute `reset_time` (RFC3339).
-  `reset_in_seconds` is also present but not used: it is only accurate at
-  capture time, while `reset_time` is an absolute instant.
+- `quota` — a flat map keyed by Antigravity's own bucket id,
+  `<pool>-<window>`. `1.2.8` reports four buckets: `gemini-5h` and
+  `gemini-weekly` (Antigravity's native models), `3p-5h` and `3p-weekly`
+  (third-party models — Claude, GPT-OSS — routed through it). The `1.2.3`
+  capture had only the two weekly buckets. Each carries `remaining_fraction`
+  (0-1) and an absolute `reset_time` (RFC3339). `reset_in_seconds` is also
+  present but not used: it is only accurate at capture time. The pool names
+  match the groups `agy -p /quota --output-format json` prints ("Gemini
+  Models", "Claude and GPT models"); the panel shows them as "Gemini" and
+  "Claude & GPT".
 - `plan_tier` — a human label for the account's plan (e.g. `"Antigravity
   Starter Quota"`), shown as `$provider`'s plan type.
 - `transcript_path` — recorded by herdr's hook as `agent_session_path`
@@ -84,13 +109,23 @@ sufficient: two Antigravity panes may share one repository.
 
 Unlike Cursor, Antigravity's statusLine reports account-wide quota directly,
 so it is registered `CapOwnsSubscriptionQuota` rather than `CapContextOnly`.
-Quota is billed per Google account, not per conversation: the limits collector
-reads whichever snapshot is freshest across every known session, not one tied
-to a specific pane, since any pane's observation of a shared account speaks
-for the whole account.
+Quota is billed per Google account, not per conversation, so the bridge keeps
+it in its own snapshot (`herdr-usagebar/account.json`, beside the sessions
+directory) that every payload reporting quota refreshes, including pre-turn
+payloads with no conversation id. The limits collector reads that snapshot
+while it is fresh (four hours), whichever pane wrote it.
 
-`gemini-weekly` is shown as the sidebar `$limit` row's primary window (the
-account's own native quota); `3p-weekly` as secondary. Both share the same
-one-week duration, so — unlike Claude's 5h/7d split — the primary/secondary
-assignment is a display convention (native quota first), not a duration
-ranking.
+Each pool is one panel entry, the way the other harnesses expand to one entry
+per account: the 5-hour window is Primary and the weekly window Secondary.
+The native pool keeps the bare `agy` id, so a pane's sidebar `$limit` shows
+the Gemini pool; the third-party pool is `agy-3p`. Pools are derived from the
+bucket ids, so a pool Antigravity adds appears under its raw id, and a window
+name other than `5h`/`weekly` is skipped rather than guessed into a bar.
+
+## Context percentage
+
+The rendered percentage is computed from `total_input_tokens` over
+`context_window_size`. In the `1.2.3` capture this equals agy's own
+`used_percentage` (18558 / 1048576 = 1.7698%). The published example instead
+matches (input + output) / size (149318 / 1048576 = 14.24%), so if a future
+capture disagrees, re-check which total agy's own meter uses.

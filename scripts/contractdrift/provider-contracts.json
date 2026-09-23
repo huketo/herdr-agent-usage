@@ -73,5 +73,24 @@
       "CURSOR_CONFIG_DIR remains the documented config-directory override",
       "XDG_CONFIG_HOME/cursor remains the documented Linux/BSD location"
     ]
+  },
+  {
+    "id": "antigravity",
+    "label": "Antigravity CLI statusLine",
+    "url": "https://antigravity.google/docs/cli/statusline",
+    "requiredText": [
+      "settings.json",
+      "stack_with_default",
+      "conversation_id",
+      "context_window_size",
+      "remaining_fraction",
+      "reset_time"
+    ],
+    "contracts": [
+      "statusLine remains a command entry in ~/.gemini/antigravity-cli/settings.json that receives the JSON payload on stdin",
+      "stack_with_default keeps the built-in status line and renders the command output below it",
+      "the payload keeps conversation_id and context_window.context_window_size",
+      "quota buckets keep remaining_fraction and an absolute reset_time"
+    ]
   }
 ]
