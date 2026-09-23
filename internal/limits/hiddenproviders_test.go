@@ -93,11 +93,14 @@ func TestCollectAllProviderLimits_SkipSurvivesUnrestrictedCollection(t *testing.
 	}
 }
 
-// Without Skip, nothing changes: every configured family still collects in
-// display order.
+// Without Skip, nothing changes: every family in the canonical table still
+// collects, in that table's display order.
 func TestCollectAllProviderLimits_NoSkipCollectsEveryFamily(t *testing.T) {
 	got := collectedIDs(CollectAllProviderLimits(nil, 0, CollectOptions{}))
-	want := []string{"claude", "codex", "opencode", "grok", "agy"}
+	want := make([]string, 0, len(quotaFamilySpecs))
+	for _, family := range quotaFamilySpecs {
+		want = append(want, family.family)
+	}
 	if len(got) != len(want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}

@@ -1,13 +1,16 @@
 /**
  * UsageProvider for the Antigravity CLI (`agy`).
  *
- * Antigravity exposes context occupancy and weekly quota only through its
+ * Antigravity exposes context occupancy and account quota only through its
  * statusLine, the same delivery mechanism Cursor uses; see the package
  * comment on snapshot.go for why no on-disk usage file is read directly. It
  * is registered as CapOwnsSubscriptionQuota: unlike Cursor, its statusLine
  * payload includes account-wide quota windows (see
  * internal/limits/antigravitylimits.go), so it owns a subscription quota in
  * addition to context.
+ *
+ * The agent id is `agy`, which is what the CLI's herdr integration reports as
+ * the pane's agent — not the `antigravity-cli` integration name.
  */
 package antigravity
 

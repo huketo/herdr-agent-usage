@@ -8,7 +8,10 @@ package limits
 import (
 	"path/filepath"
 
-	"github.com/senna-lang/herdr-agent-usage/internal/providers/antigravity"
+	antigravityprovider "github.com/senna-lang/herdr-agent-usage/internal/providers/antigravity"
+	claudeprovider "github.com/senna-lang/herdr-agent-usage/internal/providers/claude"
+	"github.com/senna-lang/herdr-agent-usage/internal/providers/codex"
+	"github.com/senna-lang/herdr-agent-usage/internal/providers/grok"
 	"github.com/senna-lang/herdr-agent-usage/internal/providers/opencode"
 )
 
@@ -35,24 +38,27 @@ type GrokProfileCollector = ClaudeProfileCollector
 // OpenCodeProfileCollector is one configured OpenCode profile's collector.
 type OpenCodeProfileCollector = ClaudeProfileCollector
 
+// AntigravityPoolCollector is one Antigravity model pool's collector. Same
+// shape again, but its members are discovered from the latest statusLine
+// observation rather than configured: a pool is what runs out independently,
+// so it is what a row must represent.
+type AntigravityPoolCollector = ClaudeProfileCollector
+
 // CollectOptions configures CollectAllProviderLimits.
 type CollectOptions struct {
 	// Each profile family is collected in configuration order. Empty profile
 	// slices synthesize their literal default collector for direct test callers.
-	Claude   []ClaudeProfileCollector
-	Codex    []CodexProfileCollector
-	OpenCode []OpenCodeProfileCollector
-	Grok     []GrokProfileCollector
-	// Antigravity has no per-account profile concept (one Google account per
-	// install), so unlike the profile families above it is a single
-	// injectable collector rather than a slice. Nil leaves it uncollected in
-	// a bare CollectOptions{}, matching the profile families' unconfigured
-	// stub behavior for direct test callers.
-	Antigravity LimitsCollector
+	Claude      []ClaudeProfileCollector
+	Codex       []CodexProfileCollector
+	OpenCode    []OpenCodeProfileCollector
+	Grok        []GrokProfileCollector
+	Antigravity []AntigravityPoolCollector
 	// Attach activity after collection (injectable for tests).
 	Attach func(providers []ProviderLimits, nowMs int64) []ProviderLimits
-	// Only restricts collection to these provider ids (nil = all providers).
+	// Only restricts collection to these entry ids (nil = all providers).
 	// Filtered providers are skipped entirely: their collectors never run.
+	// ActiveProviderFilter expands a family into its entry ids, so a family
+	// name never has to be matched here.
 	Only map[string]bool
 	// Skip hides provider ids the user configured out of the panel, by profile
 	// id or by family id. It is applied after Only, so a hidden provider stays
@@ -161,13 +167,11 @@ func DefaultCollectOptions() CollectOptions {
 	}
 
 	return CollectOptions{
-		Claude:   claudeCollectors,
-		Codex:    codexCollectors,
-		Grok:     grokCollectors,
-		OpenCode: openCodeCollectors,
-		Antigravity: func(_ *string, nowMs int64) ProviderLimits {
-			return CollectAntigravityLimits(nowMs, CollectAntigravityLimitsOptions{})
-		},
+		Claude:      claudeCollectors,
+		Codex:       codexCollectors,
+		Grok:        grokCollectors,
+		OpenCode:    openCodeCollectors,
+		Antigravity: AntigravityPoolCollectors(),
 	}
 }
 
@@ -182,19 +186,64 @@ func DefaultCollectOptions() CollectOptions {
 var singleCollectorQuotaSpecs = []struct {
 	id, label string
 	field     func(CollectOptions) LimitsCollector
+}{}
+
+// quotaFamilySpecs is the canonical list of quota-owning providers that
+// expand to several panel entries: one per configured account, or — for
+// Antigravity — one per model pool in the latest statusLine observation. It is the
+// display order, the family-id vocabulary that ui.hide_providers accepts, and
+// the set billingmode.go subtracts to find the still-single providers, so all
+// three cannot drift apart.
+var quotaFamilySpecs = []struct {
+	family, label string
+	field         func(CollectOptions) []ClaudeProfileCollector
 }{
-	{
-		id:    antigravity.Provider.AgentID(),
-		label: "Antigravity",
-		field: func(o CollectOptions) LimitsCollector { return o.Antigravity },
-	},
+	{claudeprovider.Provider.AgentID(), "Claude", func(o CollectOptions) []ClaudeProfileCollector { return o.Claude }},
+	{codex.Provider.AgentID(), "Codex", func(o CollectOptions) []ClaudeProfileCollector { return o.Codex }},
+	{opencode.Provider.AgentID(), "OpenCode", func(o CollectOptions) []ClaudeProfileCollector { return o.OpenCode }},
+	{grok.Provider.AgentID(), "Grok", func(o CollectOptions) []ClaudeProfileCollector { return o.Grok }},
+	{antigravityprovider.Provider.AgentID(), antigravityLabel, func(o CollectOptions) []ClaudeProfileCollector { return o.Antigravity }},
+}
+
+// quotaFamilyIDs is quotaFamilySpecs' id set, for the layers that only need
+// to know whether a provider expands to several entries.
+func quotaFamilyIDs() map[string]bool {
+	ids := make(map[string]bool, len(quotaFamilySpecs))
+	for _, f := range quotaFamilySpecs {
+		ids[f.family] = true
+	}
+	return ids
+}
+
+// EntryIDs flattens the options into every entry id CollectAllProviderLimits
+// would collect, in display order: each family's accounts or pools first, then
+// the still-single providers. Callers that gate collection need this exact
+// universe, since a gate silently missing an id would hide it.
+func (o CollectOptions) EntryIDs() []string {
+	entries := o.familyEntryIDs()
+	out := make([]string, 0, len(entries)+len(singleCollectorQuotaSpecs))
+	for _, family := range quotaFamilySpecs {
+		out = append(out, entries[family.family]...)
+	}
+	for _, spec := range singleCollectorQuotaSpecs {
+		out = append(out, spec.id)
+	}
+	return out
+}
+
+// defaultGatedProviderIDs is the universe for a caller with no collection
+// options at hand: one id per registered quota-owning provider, which for a
+// family is the family's own id.
+func defaultGatedProviderIDs() []string {
+	return CollectOptions{}.EntryIDs()
 }
 
 // CollectAllProviderLimits runs collectors in display order: each configured
-// Claude profile (config order) -> Codex -> OpenCode -> Grok, then attaches
-// pane activity when configured. Providers excluded by opts.Only, or hidden by
-// opts.Skip, are skipped (collectors never run). Pass DefaultCollectOptions()
-// for production local collectors.
+// Claude profile (config order) -> Codex -> OpenCode -> Grok -> each
+// Antigravity model pool, then attaches pane activity when configured.
+// Providers excluded by opts.Only, or hidden by opts.Skip, are skipped
+// (collectors never run). Pass DefaultCollectOptions() for production local
+// collectors.
 func CollectAllProviderLimits(cwd *string, nowMs int64, opts CollectOptions) []ProviderLimits {
 	collect := func(collector LimitsCollector, id, label string) ProviderLimits {
 		if collector != nil {
@@ -208,28 +257,17 @@ func CollectAllProviderLimits(cwd *string, nowMs int64, opts CollectOptions) []P
 			Note:        strPtr("limits collector not configured"),
 		}
 	}
-
-	// Collection order is the panel's display order. Each family carries its
-	// own id so a profile id ("ai_10") can be hidden individually while
-	// hiding the family id ("claude") hides every one of its accounts.
-	families := []struct {
-		family string
-		specs  []ClaudeProfileCollector
-	}{
-		{"claude", withDefaultSpec(opts.Claude, "claude", "Claude")},
-		{"codex", withDefaultSpec(opts.Codex, "codex", "Codex")},
-		{"opencode", withDefaultSpec(opts.OpenCode, "opencode", "OpenCode")},
-		{"grok", withDefaultSpec(opts.Grok, "grok", "Grok")},
-	}
-
-	base := make([]ProviderLimits, 0, len(singleCollectorQuotaSpecs))
-	for _, f := range families {
-		for _, spec := range f.specs {
-			if opts.collects(spec.ID, f.family) {
+	base := make([]ProviderLimits, 0, len(quotaFamilySpecs)+len(singleCollectorQuotaSpecs))
+	for _, family := range quotaFamilySpecs {
+		// Each entry carries its own id so one account or pool can be hidden
+		// individually, while hiding the family id ("claude") hides all of it.
+		for _, spec := range withDefaultSpec(family.field(opts), family.family, family.label) {
+			if opts.collects(spec.ID, family.family) {
 				base = append(base, collect(spec.Collector, spec.ID, spec.Label))
 			}
 		}
 	}
+
 	for _, spec := range singleCollectorQuotaSpecs {
 		if opts.collects(spec.id, spec.id) {
 			base = append(base, collect(spec.field(opts), spec.id, spec.label))

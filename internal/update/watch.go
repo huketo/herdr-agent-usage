@@ -77,7 +77,9 @@ func releaseWatchLock(f *os.File) {
 func collectWatchProviders(cwd *string, nowMs int64) []limits.ProviderLimits {
 	opts := limits.DefaultCollectOptions()
 	snaps, panesOK := ListOpenPaneSnapshots()
-	opts.Only = limits.BillingProviderFilter(snaps, panesOK, limits.DefaultBillingDeps())
+	billingDeps := limits.DefaultBillingDeps()
+	billingDeps.EntryIDs = opts.EntryIDs()
+	opts.Only = limits.BillingProviderFilter(snaps, panesOK, billingDeps)
 	return limits.CollectAllProviderLimits(cwd, nowMs, opts)
 }
 

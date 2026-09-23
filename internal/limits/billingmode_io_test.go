@@ -361,7 +361,11 @@ func TestIO_MultipleClaudeProfiles_IndependentBilling(t *testing.T) {
 		t.Fatalf("profile B: got %v want Subscription", mode)
 	}
 
-	set := BillingProviderFilter([]OpenPaneSnapshot{paneA, paneB}, true, DefaultBillingDeps())
+	deps := DefaultBillingDeps()
+	// The gated universe is the caller's, as in production: both configured
+	// accounts, each decided on its own evidence.
+	deps.EntryIDs = []string{"claude", "claude-secondary"}
+	set := BillingProviderFilter([]OpenPaneSnapshot{paneA, paneB}, true, deps)
 	if set["claude"] {
 		t.Fatalf("profile A (bedrock) should be excluded: %#v", set)
 	}

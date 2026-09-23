@@ -263,10 +263,13 @@ func collectPanel(nowMs int64, activeOnly bool) panelSnapshot {
 	opts := limits.DefaultCollectOptions()
 	opts.Skip = hidden
 	if activeOnly && !cfg.ShowAllProviders {
-		opts.Only = limits.ActiveProviderFilter(snaps, panesOK)
+		opts.Only = limits.ActiveProviderFilter(snaps, panesOK, opts)
 		// Subscription gate: hide providers whose open panes all run on
-		// pay-as-you-go backends (--all bypasses both filters).
-		billing := limits.BillingProviderFilter(snaps, panesOK, limits.DefaultBillingDeps())
+		// pay-as-you-go backends (--all bypasses both filters). The gate
+		// decides over exactly the entries this pass would collect.
+		billingDeps := limits.DefaultBillingDeps()
+		billingDeps.EntryIDs = opts.EntryIDs()
+		billing := limits.BillingProviderFilter(snaps, panesOK, billingDeps)
 		opts.Only = limits.IntersectFilters(opts.Only, billing)
 	}
 	opts.Attach = func(providers []limits.ProviderLimits, now int64) []limits.ProviderLimits {
@@ -497,7 +500,9 @@ func runNotify() {
 	opts := limits.DefaultCollectOptions()
 	// Never toast about subscription windows for pay-as-you-go setups.
 	snaps, panesOK := openPaneSnapshots()
-	opts.Only = limits.BillingProviderFilter(snaps, panesOK, limits.DefaultBillingDeps())
+	billingDeps := limits.DefaultBillingDeps()
+	billingDeps.EntryIDs = opts.EntryIDs()
+	opts.Only = limits.BillingProviderFilter(snaps, panesOK, billingDeps)
 	providers := limits.CollectAllProviderLimits(resolveCwd(), nowMs, opts)
 	limits.NotifyProviderPrimaryLimitsWithThresholds(providers, nowMs, config.RemainingThresholds, config.LimitPercent)
 

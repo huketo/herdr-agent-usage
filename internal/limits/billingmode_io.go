@@ -27,31 +27,15 @@ import (
 const statusLineCacheFreshMs = 7 * 24 * 60 * 60 * 1000
 
 // DefaultBillingDeps returns production billing-mode resolvers. It resolves the
-// profile snapshot once and shares it across both mode closures and the id
-// list, so a BillingProviderFilter pass agrees on one profile set instead of
-// re-resolving config/env per pane.
+// profile snapshot once and shares it across both mode closures, so a
+// BillingProviderFilter pass agrees on one profile set instead of re-resolving
+// config/env per pane. The gated universe (BillingDeps.EntryIDs) is left to
+// the caller, which is the only layer that knows what it is about to collect.
 func DefaultBillingDeps() BillingDeps {
 	profiles := ResolvedClaudeProfiles()
 	codexProfiles := ResolvedCodexProfiles()
 	grokProfiles := ResolvedGrokProfiles()
 	openCodeProfiles := ResolvedOpenCodeProfiles()
-
-	ids := make([]string, len(profiles))
-	for i, profile := range profiles {
-		ids[i] = profile.ID
-	}
-	codexIDs := make([]string, len(codexProfiles))
-	for i, profile := range codexProfiles {
-		codexIDs[i] = profile.ID
-	}
-	grokIDs := make([]string, len(grokProfiles))
-	for i, profile := range grokProfiles {
-		grokIDs[i] = profile.ID
-	}
-	openCodeIDs := make([]string, len(openCodeProfiles))
-	for i, profile := range openCodeProfiles {
-		openCodeIDs[i] = profile.ID
-	}
 
 	return BillingDeps{
 		PaneMode: func(harnessID string, pane OpenPaneSnapshot) BillingMode {
@@ -71,10 +55,6 @@ func DefaultBillingDeps() BillingDeps {
 		AccountMode: func(providerID string) BillingMode {
 			return accountBillingModeWith(profiles, grokProfiles, providerID)
 		},
-		ClaudeProfileIDs:   ids,
-		CodexProfileIDs:    codexIDs,
-		GrokProfileIDs:     grokIDs,
-		OpenCodeProfileIDs: openCodeIDs,
 		ResolvePane: func(pane OpenPaneSnapshot) (string, string, bool) {
 			return resolveBilledPane(profiles, codexProfiles, grokProfiles, openCodeProfiles, pane)
 		},

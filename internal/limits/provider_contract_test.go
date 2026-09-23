@@ -16,10 +16,6 @@ import (
 	"testing"
 
 	"github.com/senna-lang/herdr-agent-usage/internal/providers"
-	claudeprovider "github.com/senna-lang/herdr-agent-usage/internal/providers/claude"
-	"github.com/senna-lang/herdr-agent-usage/internal/providers/codex"
-	"github.com/senna-lang/herdr-agent-usage/internal/providers/grok"
-	"github.com/senna-lang/herdr-agent-usage/internal/providers/opencode"
 )
 
 func sortedCopy(ids []string) []string {
@@ -58,46 +54,54 @@ func TestAgentToProvider_MatchesRegistrations(t *testing.T) {
 	assertSameIDSet(t, "agentToProvider keys", got, want)
 }
 
-// TestSingleCollectorQuotaOwnerIDs_MatchCapabilityRegistrations guards
-// billingmode.go's derived list: every still-single quota-owning provider must
-// be present, and no profile family must be.
-func TestSingleCollectorQuotaOwnerIDs_MatchCapabilityRegistrations(t *testing.T) {
-	profileFamilies := map[string]bool{
-		claudeprovider.Provider.AgentID(): true,
-		codex.Provider.AgentID():          true,
-		grok.Provider.AgentID():           true,
-		opencode.Provider.AgentID():       true,
-	}
+// singleCollectorQuotaOwnerWant is every quota-owning provider that is still a
+// single collector: the capability registrations minus the families that
+// expand to one entry per account or pool.
+func singleCollectorQuotaOwnerWant() []string {
+	families := quotaFamilyIDs()
 	var want []string
 	for _, id := range providers.IDsWithCapability(providers.CapOwnsSubscriptionQuota) {
-		if !profileFamilies[id] {
+		if !families[id] {
 			want = append(want, id)
 		}
 	}
-	assertSameIDSet(t, "singleCollectorProviderIDs", singleCollectorProviderIDs, want)
+	return want
+}
+
+// TestQuotaFamilySpecs_AreRegisteredQuotaOwners guards collect.go's family
+// table: a family id must name a provider that declares it owns quota, so a
+// renamed or unregistered provider cannot linger as a phantom panel section.
+func TestQuotaFamilySpecs_AreRegisteredQuotaOwners(t *testing.T) {
+	owners := map[string]bool{}
+	for _, id := range providers.IDsWithCapability(providers.CapOwnsSubscriptionQuota) {
+		owners[id] = true
+	}
+	for _, spec := range quotaFamilySpecs {
+		if !owners[spec.family] {
+			t.Fatalf("quotaFamilySpecs has %q, which owns no subscription quota", spec.family)
+		}
+		if spec.label == "" {
+			t.Fatalf("quotaFamilySpecs %q has no label", spec.family)
+		}
+	}
+}
+
+// TestSingleCollectorQuotaOwnerIDs_MatchCapabilityRegistrations guards
+// billingmode.go's derived list: every still-single quota-owning provider must
+// be present, and no family must be.
+func TestSingleCollectorQuotaOwnerIDs_MatchCapabilityRegistrations(t *testing.T) {
+	assertSameIDSet(t, "singleCollectorProviderIDs", singleCollectorProviderIDs, singleCollectorQuotaOwnerWant())
 }
 
 // TestSingleCollectorQuotaSpecs_MatchCapabilityRegistrations guards collect.go's
 // CollectAllProviderLimits wiring: every quota-owning provider that is still
-// a single collector (not a profile family) must have a collect spec.
+// a single collector must have a collect spec.
 func TestSingleCollectorQuotaSpecs_MatchCapabilityRegistrations(t *testing.T) {
-	profileFamilies := map[string]bool{
-		claudeprovider.Provider.AgentID(): true,
-		codex.Provider.AgentID():          true,
-		grok.Provider.AgentID():           true,
-		opencode.Provider.AgentID():       true,
-	}
-	var want []string
-	for _, id := range providers.IDsWithCapability(providers.CapOwnsSubscriptionQuota) {
-		if !profileFamilies[id] {
-			want = append(want, id)
-		}
-	}
 	var got []string
 	for _, s := range singleCollectorQuotaSpecs {
 		got = append(got, s.id)
 	}
-	assertSameIDSet(t, "singleCollectorQuotaSpecs ids", got, want)
+	assertSameIDSet(t, "singleCollectorQuotaSpecs ids", got, singleCollectorQuotaOwnerWant())
 }
 
 // TestLimitIDSlotTables_MatchCapabilityRegistrations guards windowpool.go's

@@ -25,10 +25,6 @@ import (
 
 	"github.com/senna-lang/herdr-agent-usage/internal/limitscore"
 	"github.com/senna-lang/herdr-agent-usage/internal/providers"
-	claudeprovider "github.com/senna-lang/herdr-agent-usage/internal/providers/claude"
-	"github.com/senna-lang/herdr-agent-usage/internal/providers/codex"
-	"github.com/senna-lang/herdr-agent-usage/internal/providers/grok"
-	"github.com/senna-lang/herdr-agent-usage/internal/providers/opencode"
 )
 
 // BillingMode classifies how a pane/account is billed.
@@ -45,22 +41,18 @@ const (
 
 // singleCollectorProviderIDs is the still-single portion of the display-order
 // provider universe: every provider declaring CapOwnsSubscriptionQuota except
-// the profile families (Claude, Codex), whose ids come from BillingDeps.
-// Derived from providers.Registrations rather than duplicated, so a newly
-// registered quota-owning provider is picked up here automatically.
+// the families that expand to several entries. Derived from
+// providers.Registrations and collect.go's quotaFamilySpecs rather than
+// duplicated, so a newly registered quota-owning provider is picked up here
+// automatically.
 var singleCollectorProviderIDs = singleCollectorQuotaOwnerIDs()
 
 func singleCollectorQuotaOwnerIDs() []string {
-	profileFamilyIDs := map[string]bool{
-		claudeprovider.Provider.AgentID(): true,
-		codex.Provider.AgentID():          true,
-		grok.Provider.AgentID():           true,
-		opencode.Provider.AgentID():       true,
-	}
+	families := quotaFamilyIDs()
 	ids := providers.IDsWithCapability(providers.CapOwnsSubscriptionQuota)
 	out := make([]string, 0, len(ids))
 	for _, id := range ids {
-		if !profileFamilyIDs[id] {
+		if !families[id] {
 			out = append(out, id)
 		}
 	}
@@ -208,20 +200,13 @@ type BillingDeps struct {
 	PaneMode func(providerID string, pane OpenPaneSnapshot) BillingMode
 	// AccountMode resolves account-scoped evidence for a provider.
 	AccountMode func(providerID string) BillingMode
-	// ClaudeProfileIDs are the configured Claude profile ids, replacing the
-	// single literal "claude" entry in BillingProviderFilter's provider
-	// universe so each configured account is gated independently. Empty
-	// defaults to ["claude"] (today's single-profile behavior).
-	ClaudeProfileIDs []string
-	// CodexProfileIDs are the configured Codex profile ids, same role as
-	// ClaudeProfileIDs. Empty defaults to ["codex"].
-	CodexProfileIDs []string
-	// OpenCodeProfileIDs are the configured OpenCode profile ids. Empty defaults
-	// to ["opencode"].
-	OpenCodeProfileIDs []string
-	// GrokProfileIDs are the configured Grok profile ids. Empty defaults to
-	// ["grok"].
-	GrokProfileIDs []string
+	// EntryIDs is the provider universe this gate decides over: every entry
+	// the caller is about to collect, which for a family is one id per
+	// configured account or discovered pool. It comes from the caller's own
+	// CollectOptions (see CollectOptions.EntryIDs) so the gate can never omit
+	// an entry and thereby hide it by accident. Empty falls back to one id per
+	// registered quota-owning provider.
+	EntryIDs []string
 	// ResolvePane maps one harness pane to its billed provider while retaining
 	// the harness id needed to read session-specific evidence.
 	ResolvePane func(pane OpenPaneSnapshot) (providerID, harnessID string, ok bool)
@@ -246,29 +231,10 @@ func PaneBillingMode(providerID string, pane OpenPaneSnapshot, deps BillingDeps)
 // backend. Providers without open panes (or when the pane query failed)
 // are gated by account evidence alone — fail-open on Unknown.
 func BillingProviderFilter(openPanes []OpenPaneSnapshot, paneQueryOK bool, deps BillingDeps) map[string]bool {
-	claudeIDs := deps.ClaudeProfileIDs
-	if len(claudeIDs) == 0 {
-		claudeIDs = []string{claudeprovider.Provider.AgentID()}
+	allIDs := deps.EntryIDs
+	if len(allIDs) == 0 {
+		allIDs = defaultGatedProviderIDs()
 	}
-	codexIDs := deps.CodexProfileIDs
-	if len(codexIDs) == 0 {
-		codexIDs = []string{codex.Provider.AgentID()}
-	}
-	openCodeIDs := deps.OpenCodeProfileIDs
-	if len(openCodeIDs) == 0 {
-		openCodeIDs = []string{opencode.Provider.AgentID()}
-	}
-	grokIDs := deps.GrokProfileIDs
-	if len(grokIDs) == 0 {
-		grokIDs = []string{grok.Provider.AgentID()}
-	}
-
-	allIDs := make([]string, 0, len(claudeIDs)+len(codexIDs)+len(openCodeIDs)+len(grokIDs)+len(singleCollectorProviderIDs))
-	allIDs = append(allIDs, claudeIDs...)
-	allIDs = append(allIDs, codexIDs...)
-	allIDs = append(allIDs, openCodeIDs...)
-	allIDs = append(allIDs, grokIDs...)
-	allIDs = append(allIDs, singleCollectorProviderIDs...)
 
 	type billedPane struct {
 		harnessID string

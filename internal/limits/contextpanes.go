@@ -2,7 +2,7 @@
  * Context-only panes: the panel section for providers that report context
  * occupancy but own no quota.
  *
- * A provider registered CapContextOnly (Cursor, Antigravity) has no window to
+ * A provider registered CapContextOnly (currently Cursor) has no window to
  * run out of, so it never produces a ProviderLimits block. Its panes would
  * otherwise be invisible in the panel even while they are the pane the user is
  * working in. This section states what is actually known about them: how full

@@ -148,21 +148,6 @@ func codexLimitIDSlot(limitID string) (windowSlot, int) {
 	return slotNone, 0
 }
 
-// antigravityLimitIDSlot maps Antigravity's two weekly quota buckets. Both
-// are the same rolling-week duration, but they are separate resource pools
-// (native Gemini vs. third-party models), not a short/mid tier of one
-// resource: gemini-weekly is the account's own native quota and is shown as
-// Primary; 3p-weekly is Secondary. See CollectAntigravityLimits.
-func antigravityLimitIDSlot(limitID string) (windowSlot, int) {
-	switch limitID {
-	case "gemini-weekly":
-		return slotPrimary, 10080
-	case "3p-weekly":
-		return slotSecondary, 10080
-	}
-	return slotNone, 0
-}
-
 func grokLimitIDSlot(limitID string) (windowSlot, int) {
 	switch limitID {
 	// The plan meter, matching the single window CollectGrokLimits shows.
@@ -183,6 +168,25 @@ func opencodeLimitIDSlot(limitID string) (windowSlot, int) {
 		return slotSecondary, 10080
 	case "monthly":
 		return slotTertiary, 43200
+	}
+	return slotNone, 0
+}
+
+// antigravityLimitIDSlot maps Antigravity's own bucket vocabulary. The CLI
+// names one allowance pool's windows "<pool>-5h" and "<pool>-weekly", and the
+// pool prefix is already encoded in the provider id, so only the window part
+// selects a slot. Antigravity is not reachable through OMP today, so nothing
+// is expected to arrive here; the vocabulary is the CLI's rather than empty so
+// an observer that does start reporting it lands in the right bar.
+func antigravityLimitIDSlot(limitID string) (windowSlot, int) {
+	if idx := strings.LastIndex(limitID, "-"); idx >= 0 {
+		limitID = limitID[idx+1:]
+	}
+	switch limitID {
+	case "5h":
+		return slotPrimary, 300
+	case "weekly":
+		return slotSecondary, 10080
 	}
 	return slotNone, 0
 }
