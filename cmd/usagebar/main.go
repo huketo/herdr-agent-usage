@@ -715,9 +715,8 @@ func runCursorStatusLine() {
 }
 
 // runAntigravityStatusLine records one Antigravity CLI statusLine payload and
-// prints the line Antigravity renders in place of its own default status
-// line (configuring a custom statusLine command fully replaces the built-in
-// one; see `agy` `/statusline help`).
+// prints the line Antigravity renders below its built-in status line (with
+// `stack_with_default: true`) or in its place.
 //
 // An unusable payload exits non-zero with empty stdout, matching Cursor's
 // bridge: an update carrying no usable snapshot must leave the stored one
@@ -731,7 +730,7 @@ func runAntigravityStatusLine() {
 	if stateDir == "" {
 		os.Exit(1)
 	}
-	text, err := antigravity.RunStatusLineIn(antigravity.SessionsDir(stateDir), data, os.Getenv("HERDR_PANE_ID"), time.Now().UnixMilli())
+	text, err := antigravity.RunStatusLineIn(stateDir, data, os.Getenv("HERDR_PANE_ID"), time.Now().UnixMilli())
 	if err != nil {
 		os.Exit(1)
 	}

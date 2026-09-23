@@ -169,9 +169,8 @@ func TestSnapshotFromStatusLine_Rejections(t *testing.T) {
 		{"blank", "   ", ErrMalformedPayload},
 		{"garbage", "not json", ErrMalformedPayload},
 		{"truncated", `{"conversation_id":"x","context_window":{`, ErrMalformedPayload},
-		{"missing conversation_id", `{"context_window":{"total_input_tokens":0}}`, ErrNoSessionID},
-		{"empty conversation_id", `{"conversation_id":"","context_window":{"total_input_tokens":0}}`, ErrNoSessionID},
 		{"missing context_window", `{"conversation_id":"x"}`, ErrNoContextWindow},
+		{"pre-turn without context_window", `{"conversation_id":""}`, ErrNoContextWindow},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -180,6 +179,25 @@ func TestSnapshotFromStatusLine_Rejections(t *testing.T) {
 				t.Fatalf("got %v, want %v", err, tc.wantErr)
 			}
 		})
+	}
+}
+
+// Before the first turn agy reports an empty conversation_id but already
+// carries the account's quota. The snapshot keeps both; only the session store
+// needs an id.
+func TestSnapshotFromStatusLine_PreTurnKeepsQuota(t *testing.T) {
+	payload := `{
+		"conversation_id": "",
+		"context_window": { "total_input_tokens": 0, "context_window_size": 1048576, "current_usage": null },
+		"quota": { "gemini-5h": { "remaining_fraction": 0.99, "reset_time": "2026-09-23T09:00:38Z" } },
+		"plan_tier": "Google AI Ultra"
+	}`
+	snap, err := SnapshotFromStatusLine([]byte(payload), "w1:p1", 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if snap.SessionID != "" || snap.Quota["gemini-5h"].RemainingFraction != 0.99 || snap.PlanTier != "Google AI Ultra" {
+		t.Fatalf("got %+v", snap)
 	}
 }
 

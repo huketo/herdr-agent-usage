@@ -29,8 +29,10 @@ import (
 // must leave any existing snapshot untouched rather than replacing it.
 var (
 	ErrMalformedPayload = errors.New("antigravity: malformed statusLine payload")
-	ErrNoSessionID      = errors.New("antigravity: statusLine payload has no conversation_id")
 	ErrNoContextWindow  = errors.New("antigravity: statusLine payload has no context_window")
+	// ErrNoSessionID rejects storing a snapshot that names no conversation in
+	// the per-session store; see WriteSnapshot.
+	ErrNoSessionID = errors.New("antigravity: snapshot has no conversation_id")
 )
 
 // statusLinePayload is the subset of Antigravity's statusLine JSON this
@@ -68,6 +70,11 @@ type statusLinePayload struct {
 // so the provider can still resolve this session after Antigravity rotates
 // its conversation id (e.g. across a cleared or resumed conversation). It may
 // be empty when the bridge runs outside herdr.
+//
+// An empty conversation_id is not an error: agy sends it before the first
+// turn, when the account's quota is already known but no conversation exists.
+// The snapshot then has no SessionID, and callers store only its account-wide
+// fields.
 func SnapshotFromStatusLine(payload []byte, paneID string, nowMs int64) (Snapshot, error) {
 	if len(strings.TrimSpace(string(payload))) == 0 {
 		return Snapshot{}, ErrMalformedPayload
@@ -75,9 +82,6 @@ func SnapshotFromStatusLine(payload []byte, paneID string, nowMs int64) (Snapsho
 	var parsed statusLinePayload
 	if err := json.Unmarshal(payload, &parsed); err != nil {
 		return Snapshot{}, ErrMalformedPayload
-	}
-	if parsed.ConversationID == "" {
-		return Snapshot{}, ErrNoSessionID
 	}
 	if parsed.ContextWindow == nil {
 		return Snapshot{}, ErrNoContextWindow

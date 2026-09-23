@@ -197,27 +197,30 @@ func TestResolve_CachePassesThrough(t *testing.T) {
 	}
 }
 
-func TestLatestFreshSnapshot_PicksNewestAcrossSessions(t *testing.T) {
-	dir := seed(t,
-		Snapshot{SessionID: "a", PlanTier: "old", UpdatedAtMs: now - 1000},
-		Snapshot{SessionID: "b", PlanTier: "new", UpdatedAtMs: now},
-	)
-	snap, ok := LatestFreshSnapshot(dir, now)
-	if !ok || snap.PlanTier != "new" {
-		t.Fatalf("got %+v, ok=%v", snap, ok)
+func TestLatestAccountSnapshot_IgnoresStale(t *testing.T) {
+	stateDir := t.TempDir()
+	if err := WriteAccountSnapshot(stateDir, Snapshot{PlanTier: "old", UpdatedAtMs: now - SnapshotFreshnessMs - 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := LatestAccountSnapshot(stateDir, now); ok {
+		t.Fatal("got ok=true, want a stale account snapshot to yield nothing")
 	}
 }
 
-func TestLatestFreshSnapshot_IgnoresStale(t *testing.T) {
-	dir := seed(t, Snapshot{SessionID: "a", UpdatedAtMs: now - SnapshotFreshnessMs - 1})
-	if _, ok := LatestFreshSnapshot(dir, now); ok {
-		t.Fatal("got ok=true, want a stale-only directory to yield nothing")
+func TestLatestAccountSnapshot_Missing(t *testing.T) {
+	if _, ok := LatestAccountSnapshot(t.TempDir(), now); ok {
+		t.Fatal("got ok=true, want nothing before any observation")
 	}
 }
 
-func TestLatestFreshSnapshot_EmptyDirectory(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "sessions")
-	if _, ok := LatestFreshSnapshot(dir, now); ok {
-		t.Fatal("got ok=true, want nothing from an empty directory")
+// The account snapshot lives outside the sessions directory, so context
+// resolution by pane can never adopt it as a conversation.
+func TestAccountSnapshot_InvisibleToSessionListing(t *testing.T) {
+	stateDir := t.TempDir()
+	if err := WriteAccountSnapshot(stateDir, Snapshot{PaneID: "w1:p1", UpdatedAtMs: now}); err != nil {
+		t.Fatal(err)
+	}
+	if got := ListSnapshots(SessionsDir(stateDir)); len(got) != 0 {
+		t.Fatalf("session listing saw %+v", got)
 	}
 }

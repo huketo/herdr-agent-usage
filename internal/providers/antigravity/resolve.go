@@ -18,6 +18,8 @@
 package antigravity
 
 import (
+	"path/filepath"
+
 	"github.com/senna-lang/herdr-agent-usage/internal/core"
 	"github.com/senna-lang/herdr-agent-usage/internal/provider"
 )
@@ -146,25 +148,16 @@ func isFresh(snap Snapshot, nowMs int64) bool {
 	return age >= 0 && age <= SnapshotFreshnessMs
 }
 
-// LatestFreshSnapshot returns the most recently updated fresh snapshot across
-// every session under sessionsDir. Quota and plan tier are account-wide, not
-// session-scoped, so unlike context resolution this deliberately ignores pane
-// and session identity: whichever pane most recently observed the account's
-// usage speaks for the whole account, and snapshots taken close together are
-// expected to agree rather than conflict.
-func LatestFreshSnapshot(sessionsDir string, nowMs int64) (Snapshot, bool) {
-	var latest Snapshot
-	found := false
-	for _, snap := range ListSnapshots(sessionsDir) {
-		if !isFresh(snap, nowMs) {
-			continue
-		}
-		if !found || snap.UpdatedAtMs > latest.UpdatedAtMs {
-			latest = snap
-			found = true
-		}
+// LatestAccountSnapshot returns the account's newest quota observation when
+// it is still fresh. Quota and plan tier are account-wide, not session-scoped,
+// so this deliberately ignores pane and session identity: whichever pane most
+// recently observed the account's usage speaks for the whole account.
+func LatestAccountSnapshot(stateDir string, nowMs int64) (Snapshot, bool) {
+	snap, err := readSnapshotFile(filepath.Join(stateDir, accountFileName))
+	if err != nil || !isFresh(snap, nowMs) {
+		return Snapshot{}, false
 	}
-	return latest, found
+	return snap, true
 }
 
 // toContextUsage converts a snapshot into the shared domain type.

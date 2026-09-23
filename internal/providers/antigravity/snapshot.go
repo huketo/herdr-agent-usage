@@ -77,8 +77,31 @@ func snapshotPath(sessionsDir, sessionID string) string {
 // The caller must have validated snap: this function will happily persist
 // whatever it is given, and an invalid snapshot written here would replace a
 // valid one. Validation lives in the statusLine adapter, before this point.
+// Only the missing session id is rejected here, because it would name the
+// file ".json" and make every pre-turn observation look like one conversation.
 func WriteSnapshot(sessionsDir string, snap Snapshot) error {
-	if err := os.MkdirAll(sessionsDir, 0o755); err != nil {
+	if snap.SessionID == "" {
+		return ErrNoSessionID
+	}
+	return writeSnapshotFile(sessionsDir, snapshotPath(sessionsDir, snap.SessionID), snap)
+}
+
+// accountFileName holds the newest observation of the account-wide fields
+// (quota, plan tier). It sits beside the sessions directory, not inside it, so
+// session listing and pane resolution never mistake it for a conversation.
+const accountFileName = "account.json"
+
+// WriteAccountSnapshot atomically stores snap as the account's newest quota
+// observation. Quota is billed per Google account, so every pane's
+// observation overwrites the same file; an observation made before the first
+// turn, which has no conversation id yet, is stored here too.
+func WriteAccountSnapshot(stateDir string, snap Snapshot) error {
+	return writeSnapshotFile(stateDir, filepath.Join(stateDir, accountFileName), snap)
+}
+
+// writeSnapshotFile writes snap to path via a temp file in dir.
+func writeSnapshotFile(dir, path string, snap Snapshot) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 	raw, err := json.Marshal(snap)
@@ -87,7 +110,7 @@ func WriteSnapshot(sessionsDir string, snap Snapshot) error {
 	}
 
 	// Same directory as the destination so the rename cannot cross filesystems.
-	tmp, err := os.CreateTemp(sessionsDir, ".tmp-*")
+	tmp, err := os.CreateTemp(dir, ".tmp-*")
 	if err != nil {
 		return err
 	}
@@ -105,7 +128,7 @@ func WriteSnapshot(sessionsDir string, snap Snapshot) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpPath, snapshotPath(sessionsDir, snap.SessionID))
+	return os.Rename(tmpPath, path)
 }
 
 // ReadSnapshot loads one session's snapshot. A missing or unreadable file and

@@ -40,7 +40,7 @@ func latestAntigravitySnapshot(nowMs int64) *antigravity.Snapshot {
 	if stateDir == "" {
 		return nil
 	}
-	snap, ok := antigravity.LatestFreshSnapshot(antigravity.SessionsDir(stateDir), nowMs)
+	snap, ok := antigravity.LatestAccountSnapshot(stateDir, nowMs)
 	if !ok {
 		return nil
 	}
