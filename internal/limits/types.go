@@ -15,6 +15,8 @@ type RunOutEstimate = limitscore.RunOutEstimate
 
 type LimitWindow = limitscore.LimitWindow
 
+type ScopedLimit = limitscore.ScopedLimit
+
 type ProviderLimits = limitscore.ProviderLimits
 
 type ProviderPaneActivity = limitscore.ProviderPaneActivity

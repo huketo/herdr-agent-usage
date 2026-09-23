@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/senna-lang/herdr-agent-usage/internal/planlabels"
@@ -16,6 +17,41 @@ import (
 type utilizationWindow struct {
 	Utilization *float64 `json:"utilization"`
 	ResetsAt    *string  `json:"resets_at"`
+}
+
+type scopedUtilizationLimit struct {
+	Kind     string   `json:"kind"`
+	Group    string   `json:"group"`
+	Percent  *float64 `json:"percent"`
+	ResetsAt *string  `json:"resets_at"`
+	Scope    *struct {
+		Model *struct {
+			DisplayName string `json:"display_name"`
+		} `json:"model"`
+	} `json:"scope"`
+}
+
+func scopedLimitsFromUtilization(rows []scopedUtilizationLimit) []ScopedLimit {
+	var out []ScopedLimit
+	index := make(map[string]int)
+	for _, row := range rows {
+		if row.Kind != "weekly_scoped" || row.Group != "weekly" || row.Scope == nil || row.Scope.Model == nil {
+			continue
+		}
+		label := strings.TrimSpace(row.Scope.Model.DisplayName)
+		window := WindowFromUtilization(row.Percent, row.ResetsAt, 10080)
+		if label == "" || window == nil {
+			continue
+		}
+		scoped := ScopedLimit{Label: label, Window: *window}
+		if i, ok := index[label]; ok {
+			out[i] = scoped
+			continue
+		}
+		index[label] = len(out)
+		out = append(out, scoped)
+	}
+	return out
 }
 
 // ResolveClaudeJSONPath returns CLAUDE_CONFIG_JSON or ~/.claude.json.
@@ -62,8 +98,9 @@ func ProviderLimitsFromClaudeJSON(rawJSON string, nowMs int64) *ProviderLimits {
 		CachedUsageUtilization *struct {
 			FetchedAtMs *float64 `json:"fetchedAtMs"`
 			Utilization *struct {
-				FiveHour *utilizationWindow `json:"five_hour"`
-				SevenDay *utilizationWindow `json:"seven_day"`
+				FiveHour *utilizationWindow       `json:"five_hour"`
+				SevenDay *utilizationWindow       `json:"seven_day"`
+				Limits   []scopedUtilizationLimit `json:"limits"`
 			} `json:"utilization"`
 		} `json:"cachedUsageUtilization"`
 		OAuthAccount *struct {
@@ -89,7 +126,8 @@ func ProviderLimitsFromClaudeJSON(rawJSON string, nowMs int64) *ProviderLimits {
 	if cache.Utilization.SevenDay != nil {
 		secondary = WindowFromUtilization(cache.Utilization.SevenDay.Utilization, cache.Utilization.SevenDay.ResetsAt, 10080)
 	}
-	if primary == nil && secondary == nil {
+	scoped := scopedLimitsFromUtilization(cache.Utilization.Limits)
+	if primary == nil && secondary == nil && len(scoped) == 0 {
 		return nil
 	}
 
@@ -119,13 +157,14 @@ func ProviderLimitsFromClaudeJSON(rawJSON string, nowMs int64) *ProviderLimits {
 	}
 	ageMin := int(math.Max(0, math.Round(float64(nowMs-fetchedAtMs)/60_000)))
 	out := ProviderLimits{
-		ProviderID:  "claude",
-		Label:       "Claude",
-		Primary:     primary,
-		Secondary:   secondary,
-		PlanType:    plan,
-		Source:      "claude.json cachedUsageUtilization",
-		FetchedAtMs: fetchedAtMs,
+		ProviderID:   "claude",
+		Label:        "Claude",
+		Primary:      primary,
+		Secondary:    secondary,
+		ScopedLimits: scoped,
+		PlanType:     plan,
+		Source:       "claude.json cachedUsageUtilization",
+		FetchedAtMs:  fetchedAtMs,
 	}
 	if ageMin > 120 {
 		note := "stale ~" + itoa(ageMin) + "m ago"

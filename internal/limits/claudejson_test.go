@@ -57,6 +57,46 @@ func TestProviderLimitsFromClaudeJSON(t *testing.T) {
 	}
 }
 
+func TestProviderLimitsFromClaudeJSON_FableScopedLimitIsVisible(t *testing.T) {
+	raw := `{
+		"cachedUsageUtilization": {
+			"fetchedAtMs": 1700000000000,
+			"utilization": {
+				"five_hour": {"utilization": 31},
+				"seven_day": {"utilization": 69},
+				"limits": [{
+					"kind": "weekly_scoped",
+					"group": "weekly",
+					"percent": 21,
+					"resets_at": "2026-09-04T00:59:59.610137+00:00",
+					"scope": {"model": {"display_name": "Fable"}}
+				}]
+			}
+		}
+	}`
+	result := ProviderLimitsFromClaudeJSON(raw, 1_700_000_000_000)
+	if result == nil || len(result.ScopedLimits) != 1 {
+		t.Fatalf("scoped limits = %+v", result)
+	}
+	fable := result.ScopedLimits[0]
+	if fable.Label != "Fable" || fable.Window.UsedPercentage != 21 {
+		t.Fatalf("Fable limit = %+v", fable)
+	}
+	if fable.Window.WindowMinutes == nil || *fable.Window.WindowMinutes != 10080 {
+		t.Fatalf("Fable window minutes = %v", fable.Window.WindowMinutes)
+	}
+	panel := FormatProviderBlock(*result, wide, 1_700_000_000_000)
+	for _, want := range []string{"Fable", "79% left"} {
+		if !containsStr(panel, want) {
+			t.Fatalf("missing %q in:\n%s", want, panel)
+		}
+	}
+	compact := compactLine(*result, PanelLayout{Columns: 44})
+	if !containsStr(compact, "Fable") {
+		t.Fatalf("compact panel must prioritize scoped allowance:\n%s", compact)
+	}
+}
+
 func TestProviderLimitsFromClaudeJSON_TeamOrg(t *testing.T) {
 	raw, _ := json.Marshal(map[string]any{
 		"oauthAccount": map[string]any{

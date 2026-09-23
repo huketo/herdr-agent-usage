@@ -178,22 +178,39 @@ func CollectClaudeLimits(nowMs int64, options CollectClaudeLimitsOptions) Provid
 		jsonPath = ResolveClaudeJSONPath()
 	}
 
-	native := CollectClaudeLimitsFromJSON(nowMs, jsonPath)
+	jsonSnapshot := CollectClaudeLimitsFromJSON(nowMs, jsonPath)
+	selected := jsonSnapshot
 	if fromStatusLine := collectFromStatusLineCache(nowMs, statusPath); fromStatusLine != nil {
-		if native == nil || fromStatusLine.FetchedAtMs > native.FetchedAtMs {
-			native = fromStatusLine
+		if selected == nil || fromStatusLine.FetchedAtMs > selected.FetchedAtMs {
+			selected = fromStatusLine
 		}
 	}
 	// The windows belong to the account, so any agent's reading of them
 	// counts — including when Claude Code wrote nothing at all.
 	account, _ := AccountEmailFromJSONPath(jsonPath)
 	if borrowed := borrowWindows("claude", "Claude", account, nowMs); borrowed != nil {
-		if native == nil || borrowed.FetchedAtMs > native.FetchedAtMs {
-			return *borrowed
+		if selected == nil || borrowed.FetchedAtMs > selected.FetchedAtMs {
+			selected = borrowed
 		}
 	}
-	if native != nil {
-		return *native
+	if selected != nil {
+		// Claude's statusLine and cross-harness observations carry only the
+		// account-wide windows. Preserve model-scoped meters from claude.json
+		// even when a fresher source wins those account-wide slots.
+		if jsonSnapshot != nil && len(selected.ScopedLimits) == 0 && len(jsonSnapshot.ScopedLimits) > 0 {
+			selected.ScopedLimits = append([]ScopedLimit(nil), jsonSnapshot.ScopedLimits...)
+			ageMin := int(math.Max(0, math.Round(float64(nowMs-jsonSnapshot.FetchedAtMs)/60_000)))
+			if ageMin > 120 {
+				scopedNote := "scoped limits stale ~" + itoa(ageMin) + "m ago"
+				if selected.Note == nil {
+					selected.Note = &scopedNote
+				} else {
+					combined := *selected.Note + " · " + scopedNote
+					selected.Note = &combined
+				}
+			}
+		}
+		return *selected
 	}
 	note := "no ~/.claude.json utilization and no statusLine cache"
 	return ProviderLimits{

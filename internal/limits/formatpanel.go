@@ -88,6 +88,14 @@ func windowTag(w *LimitWindow, fallback string) string {
 	return minutesTag(*w.WindowMinutes)
 }
 
+func scopedLimitTag(limit ScopedLimit) string {
+	label := strings.TrimSpace(limit.Label)
+	if label == "" {
+		return windowTag(&limit.Window, "")
+	}
+	return truncateToWidth(label, 8)
+}
+
 func minutesTag(mins int) string {
 	if mins <= 360 {
 		return "5h"
@@ -390,7 +398,7 @@ func richBlock(p ProviderLimits, layout PanelLayout, withExtras bool, nowMs int6
 		}
 	}
 
-	hasAny := p.Primary != nil || p.Secondary != nil || p.Tertiary != nil
+	hasAny := p.Primary != nil || p.Secondary != nil || p.Tertiary != nil || len(p.ScopedLimits) > 0
 	if !hasAny {
 		pushWindow(nil, primaryTag)
 		pushWindow(nil, secondaryTag)
@@ -403,6 +411,10 @@ func richBlock(p ProviderLimits, layout PanelLayout, withExtras bool, nowMs int6
 		}
 		if p.Tertiary != nil {
 			pushWindow(p.Tertiary, tertiaryTag)
+		}
+		for i := range p.ScopedLimits {
+			scoped := &p.ScopedLimits[i]
+			pushWindow(&scoped.Window, scopedLimitTag(*scoped))
 		}
 	}
 	if withExtras && p.PaneActivity != nil {
@@ -421,6 +433,13 @@ func richBlock(p ProviderLimits, layout PanelLayout, withExtras bool, nowMs int6
 func compactLine(p ProviderLimits, layout PanelLayout) string {
 	name := bar.Bold(p.Label, layout.Color)
 	var windows []string
+	// Scoped meters exhaust independently and are otherwise the first detail
+	// compact mode would drop. Put them first; the sidebar still carries the
+	// account-wide primary window.
+	for i := range p.ScopedLimits {
+		scoped := p.ScopedLimits[i]
+		windows = append(windows, inlineWindow(&scoped.Window, scopedLimitTag(scoped), layout))
+	}
 	if p.Primary != nil {
 		windows = append(windows, inlineWindow(p.Primary, windowTag(p.Primary, "5h"), layout))
 	}

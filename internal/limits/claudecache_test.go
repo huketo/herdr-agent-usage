@@ -88,6 +88,38 @@ func TestClaudeLimitsCache_PrefersFresherStatusLine(t *testing.T) {
 	}
 }
 
+func TestClaudeLimitsCache_FresherStatusLineKeepsFableScopedLimit(t *testing.T) {
+	dir := t.TempDir()
+	cachePath := filepath.Join(dir, "cache.json")
+	jsonPath := filepath.Join(dir, "claude.json")
+	_ = os.WriteFile(jsonPath, []byte(`{
+		"cachedUsageUtilization": {
+			"fetchedAtMs": 1000,
+			"utilization": {
+				"five_hour": {"utilization": 1},
+				"limits": [{
+					"kind": "weekly_scoped",
+					"group": "weekly",
+					"percent": 21,
+					"scope": {"model": {"display_name": "Fable"}}
+				}]
+			}
+		}
+	}`), 0o644)
+	_ = WriteClaudeLimitsCache(fiveHourInput(99), 5_000, cachePath)
+
+	got := CollectClaudeLimits(6_000, CollectClaudeLimitsOptions{
+		StatusLineCachePath: cachePath,
+		ClaudeJSONPath:      jsonPath,
+	})
+	if got.Primary == nil || got.Primary.UsedPercentage != 99 {
+		t.Fatalf("primary = %+v, want fresher statusLine", got.Primary)
+	}
+	if len(got.ScopedLimits) != 1 || got.ScopedLimits[0].Label != "Fable" {
+		t.Fatalf("scoped limits = %+v, want Fable preserved from claude.json", got.ScopedLimits)
+	}
+}
+
 func TestClaudeLimitsCache_PrefersFresherJSON(t *testing.T) {
 	dir := t.TempDir()
 	cachePath := filepath.Join(dir, "cache.json")

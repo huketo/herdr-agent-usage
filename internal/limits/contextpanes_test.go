@@ -92,10 +92,10 @@ func contextPane(agent, label string, tokens, window int) ContextPaneUsage {
 // The section states the pane and the same occupancy string the sidebar's
 // $context row shows, so the two surfaces cannot disagree.
 func TestFormatUsagePanel_ContextSectionNamesPaneAndOccupancy(t *testing.T) {
-	out := FormatUsagePanel(nil, nil, []ContextPaneUsage{contextPane("agy", "herdr-agent-usage", 42352, 256_000)},
+	out := FormatUsagePanel(nil, nil, []ContextPaneUsage{contextPane("cursor", "herdr-agent-usage", 42352, 256_000)},
 		1_800_000_000_000, PanelLayout{Columns: 60, Rows: 40})
 
-	for _, want := range []string{"Context", "agy", "herdr-agent-usage", "17% (42k)"} {
+	for _, want := range []string{"Context", "cursor", "herdr-agent-usage", "17% (42k)"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in:\n%s", want, out)
 		}
@@ -124,7 +124,7 @@ func TestFormatUsagePanel_ContextSectionRendersLast(t *testing.T) {
 		Windows: []APIUsageWindow{{WindowMinutes: 1440, Tokens: 600, CostUSD: 0.06}}}
 
 	out := FormatUsagePanel([]ProviderLimits{sub}, []APIProviderUsage{api},
-		[]ContextPaneUsage{contextPane("agy", "repo", 42352, 256_000)},
+		[]ContextPaneUsage{contextPane("cursor", "repo", 42352, 256_000)},
 		1_800_000_000_000, PanelLayout{Columns: 60, Rows: 40})
 
 	claudeAt, apiAt, contextAt := strings.Index(out, "Claude"), strings.Index(out, "DeepSeek"), strings.Index(out, "Context")
@@ -140,8 +140,8 @@ func TestFormatUsagePanel_ContextSectionRendersLast(t *testing.T) {
 // it could not name, rather than overflowing the pane.
 func TestFormatUsagePanel_ContextSectionCompactsInShortPane(t *testing.T) {
 	panes := []ContextPaneUsage{
-		contextPane("agy", "alpha", 42352, 256_000),
-		contextPane("agy", "beta", 30000, 256_000),
+		contextPane("cursor", "alpha", 42352, 256_000),
+		contextPane("cursor", "beta", 30000, 256_000),
 		contextPane("cursor", "gamma", 16000, 200_000),
 	}
 	five := 300
@@ -171,7 +171,7 @@ func TestFormatUsagePanel_ContextSectionCompactsInShortPane(t *testing.T) {
 // which would break the panel's alignment.
 func TestFormatUsagePanel_ContextRowFitsThePaneWidth(t *testing.T) {
 	const columns = 44
-	long := contextPane("agy", strings.Repeat("verylongpanelabel", 4), 42352, 256_000)
+	long := contextPane("cursor", strings.Repeat("verylongpanelabel", 4), 42352, 256_000)
 
 	out := FormatUsagePanel(nil, nil, []ContextPaneUsage{long}, 1_800_000_000_000, PanelLayout{Columns: columns, Rows: 40})
 

@@ -32,6 +32,13 @@ type LimitWindow struct {
 	RunOut *RunOutEstimate `json:"runOut,omitempty"`
 }
 
+// ScopedLimit is a provider-reported sub-meter for a named model or surface.
+// It does not replace the account-wide Primary/Secondary/Tertiary windows.
+type ScopedLimit struct {
+	Label  string
+	Window LimitWindow
+}
+
 // ProviderLimits is a per-provider rate-limit snapshot used for display.
 type ProviderLimits struct {
 	ProviderID string
@@ -41,11 +48,14 @@ type ProviderLimits struct {
 	// Secondary is the mid window (weekly).
 	Secondary *LimitWindow
 	// Tertiary is the long window (monthly). OpenCode Go etc.
-	Tertiary    *LimitWindow
-	PlanType    *string
-	Source      string
-	FetchedAtMs int64
-	Note        *string
+	Tertiary *LimitWindow
+	// ScopedLimits are independently exhausted sub-meters, such as Claude's
+	// model-specific weekly Fable allowance.
+	ScopedLimits []ScopedLimit
+	PlanType     *string
+	Source       string
+	FetchedAtMs  int64
+	Note         *string
 	// PaneActivity is per-pane token activity share over the smallest window.
 	PaneActivity *ProviderPaneActivity
 	// GroupLabel nests this entry under one shared heading in the panel
